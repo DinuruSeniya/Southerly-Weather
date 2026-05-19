@@ -98,6 +98,7 @@
     {
       "type": "TextBlock",
       "text": "Enter your suburb above to get started.",
+      "color": "${isDarkBackground ? 'light' : 'default'}",
       "isSubtle": true,
       "wrap": true,
       "$when": "${!hasData && error == ''}"
@@ -135,12 +136,14 @@
                   "text": "${temperature}°C",
                   "size": "extraLarge",
                   "weight": "bolder",
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": false
                 },
                 {
                   "type": "TextBlock",
                   "text": "Feels like ${feelsLike}°C",
                   "isSubtle": true,
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "spacing": "none",
                   "wrap": false,
                   "$when": "${feelsLike != ''}"
@@ -162,6 +165,7 @@
                   "type": "TextBlock",
                   "text": "💧 ${humidity}",
                   "isSubtle": true,
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": true,
                   "$when": "${humidity != ''}"
                 }
@@ -175,6 +179,7 @@
                   "type": "TextBlock",
                   "text": "💨 ${wind}",
                   "isSubtle": true,
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": true,
                   "$when": "${wind != ''}"
                 }
@@ -188,6 +193,7 @@
                   "type": "TextBlock",
                   "text": "🌧 ${rain} since 9am",
                   "isSubtle": true,
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": true,
                   "$when": "${rain != ''}"
                 }
@@ -200,6 +206,7 @@
           "text": "📍 ${stationName} · ${stationDist}",
           "isSubtle": true,
           "size": "small",
+          "color": "${isDarkBackground ? 'light' : 'default'}",
           "spacing": "small",
           "wrap": true,
           "$when": "${stationName != '' && $host.widgetSize != 'small'}"
@@ -236,6 +243,7 @@
           "text": "6-Day Forecast",
           "weight": "bolder",
           "size": "medium",
+          "color": "${isDarkBackground ? 'light' : 'default'}",
           "wrap": true
         },
         {
@@ -252,6 +260,7 @@
                   "type": "TextBlock",
                   "text": "${dayLabel}",
                   "size": "small",
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": false
                 }
               ]
@@ -280,6 +289,7 @@
                   "text": "${desc}",
                   "isSubtle": true,
                   "size": "small",
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": true
                 }
               ]
@@ -293,6 +303,7 @@
                   "type": "TextBlock",
                   "text": "${maxTemp}° / ${minTemp}°",
                   "size": "small",
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": false
                 }
               ]
@@ -328,6 +339,7 @@
           "text": "Hourly Forecast",
           "weight": "bolder",
           "size": "medium",
+          "color": "${isDarkBackground ? 'light' : 'default'}",
           "wrap": true
         },
         {
@@ -344,6 +356,7 @@
                   "type": "TextBlock",
                   "text": "${timeLabel}",
                   "size": "small",
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": false
                 }
               ]
@@ -372,6 +385,7 @@
                   "text": "${temp}°",
                   "size": "small",
                   "weight": "bolder",
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": false
                 }
               ]
@@ -387,6 +401,7 @@
                   "text": "💨 ${wind}",
                   "isSubtle": true,
                   "size": "small",
+                  "color": "${isDarkBackground ? 'light' : 'default'}",
                   "wrap": true
                 }
               ]

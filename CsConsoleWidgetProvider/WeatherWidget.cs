@@ -4,6 +4,7 @@
 using Microsoft.Windows.Widgets.Providers;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -30,6 +31,9 @@ namespace CsConsoleWidgetProvider
         // Cache of condition key → base64 data URI so each image is read from
         // disk only once per process lifetime.
         private static readonly Dictionary<string, string> BgCache = new();
+
+        // Cache of condition key → isDark (computed alongside BgCache, same lock).
+        private static readonly Dictionary<string, bool> BgDarknessCache = new();
 
         // Fires every 30 min to match BOM's observation update cadence.
         private Timer? _refreshTimer;
@@ -303,6 +307,7 @@ namespace CsConsoleWidgetProvider
                 iconUrl           = GetIconUrl(todayIconDesc),
                 backgroundImageUrl = backgroundDataUri,
                 headerIconUrl     = GetHeaderIconUrl(todayIconDesc),
+                isDarkBackground  = GetBgIsDark(todayIconDesc),
                 // Current (page 0)
                 temperature       = FormatTemp(temp),
                 feelsLike         = FormatTemp(feelsLike),
@@ -329,6 +334,7 @@ namespace CsConsoleWidgetProvider
         {
             hasData = false, page = 0, canGoPrev = false, canGoNext = false,
             suburb = "", iconUrl = "", backgroundImageUrl = "", headerIconUrl = "",
+            isDarkBackground = false,
             temperature = "", feelsLike = "", humidity = "",
             rain = "", wind = "", stationName = "", stationDist = "",
             dailyForecasts = Array.Empty<object>(),
@@ -342,6 +348,7 @@ namespace CsConsoleWidgetProvider
             {
                 hasData = true, page, canGoPrev = page > 0, canGoNext = page < 2,
                 suburb, iconUrl = "", backgroundImageUrl = "", headerIconUrl = "",
+                isDarkBackground = false,
                 temperature = "", feelsLike = "", humidity = "",
                 rain = "", wind = "", stationName = "", stationDist = "",
                 dailyForecasts = Array.Empty<object>(),
@@ -428,23 +435,65 @@ namespace CsConsoleWidgetProvider
                 if (!File.Exists(filePath))
                 {
                     Console.WriteLine($"[WeatherWidget] Background not found: {filePath}");
-                    lock (BgCache) BgCache[key] = "";
+                    lock (BgCache) { BgCache[key] = ""; BgDarknessCache[key] = false; }
                     return "";
                 }
 
                 var bytes   = await File.ReadAllBytesAsync(filePath);
                 var dataUri = $"data:image/jpeg;base64,{Convert.ToBase64String(bytes)}";
 
-                lock (BgCache) BgCache[key] = dataUri;
-                Console.WriteLine($"[WeatherWidget] Background cached: {key} ({bytes.Length / 1024} KB)");
+                // Analyse luminance while the bytes are already in memory.
+                // Perceived brightness uses ITU-R BT.601 coefficients.
+                var isDark = false;
+                try
+                {
+                    using var ms  = new MemoryStream(bytes);
+                    using var bmp = new Bitmap(ms);
+                    double total  = 0;
+                    int    count  = 0;
+                    // Sample a 20×20 grid — fast and accurate enough for a full-bleed bg.
+                    int xStep = Math.Max(1, bmp.Width  / 20);
+                    int yStep = Math.Max(1, bmp.Height / 20);
+                    for (int x = 0; x < bmp.Width;  x += xStep)
+                    for (int y = 0; y < bmp.Height; y += yStep)
+                    {
+                        var px = bmp.GetPixel(x, y);
+                        total += 0.299 * px.R + 0.587 * px.G + 0.114 * px.B;
+                        count++;
+                    }
+                    isDark = count > 0 && (total / count) < 128.0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[WeatherWidget] Brightness analysis failed for '{key}': {ex.Message}");
+                }
+
+                lock (BgCache)
+                {
+                    BgCache[key]          = dataUri;
+                    BgDarknessCache[key]  = isDark;
+                }
+                Console.WriteLine($"[WeatherWidget] Background cached: {key} ({bytes.Length / 1024} KB, isDark={isDark})");
                 return dataUri;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[WeatherWidget] Background load failed for '{key}': {ex.Message}");
-                lock (BgCache) BgCache[key] = "";
+                lock (BgCache) { BgCache[key] = ""; BgDarknessCache[key] = false; }
                 return "";
             }
+        }
+
+        /// <summary>
+        /// Returns true if the cached background for <paramref name="descriptor"/> is dark
+        /// (average perceived luminance &lt; 128). Defaults to false if the image hasn't been
+        /// cached yet or wasn't found — the next payload refresh will have the correct value.
+        /// </summary>
+        private static bool GetBgIsDark(string descriptor)
+        {
+            var key = GetBgKey(descriptor);
+            lock (BgCache)
+                return BgDarknessCache.TryGetValue(key, out var dark) && dark;
         }
 
         // Used in the Adaptive Card 'header' property — must be an HTTPS URL
