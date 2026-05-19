@@ -1,0 +1,415 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.6",
+
+  "header": {
+    "text": "${suburb != '' ? suburb : 'BOM Weather'}",
+    "iconUrl": "${headerIconUrl}"
+  },
+
+  "backgroundImage": {
+    "url": "${backgroundImageUrl}",
+    "fillMode": "cover",
+    "horizontalAlignment": "center",
+    "verticalAlignment": "center"
+  },
+
+  "body": [
+
+    {
+      "type": "ColumnSet",
+      "columns": [
+        {
+          "type": "Column",
+          "width": "stretch",
+          "verticalContentAlignment": "center",
+          "items": [
+            {
+              "type": "Input.Text",
+              "id": "suburb",
+              "placeholder": "${hasData ? 'Change suburb...' : 'Suburb, e.g. Fitzroy VIC'}",
+              "value": "${suburb}"
+            }
+          ]
+        },
+        {
+          "type": "Column",
+          "width": "auto",
+          "verticalContentAlignment": "center",
+          "items": [
+            {
+              "type": "ActionSet",
+              "actions": [
+                {
+                  "type": "Action.Execute",
+                  "title": "Go",
+                  "verb": "setLocation"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Column",
+          "width": "auto",
+          "verticalContentAlignment": "center",
+          "$when": "${hasData}",
+          "items": [
+            {
+              "type": "ActionSet",
+              "actions": [
+                {
+                  "type": "Action.Execute",
+                  "title": "‹",
+                  "verb": "prevPage",
+                  "associatedInputs": "none",
+                  "$when": "${canGoPrev}"
+                },
+                {
+                  "type": "Action.Execute",
+                  "title": "${page == 0 ? 'Now' : page == 1 ? 'Daily' : 'Hourly'}",
+                  "verb": "",
+                  "associatedInputs": "none",
+                  "isEnabled": false
+                },
+                {
+                  "type": "Action.Execute",
+                  "title": "›",
+                  "verb": "nextPage",
+                  "associatedInputs": "none",
+                  "$when": "${canGoNext}"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "type": "TextBlock",
+      "text": "⚠️ ${error}",
+      "color": "attention",
+      "wrap": true,
+      "$when": "${error != ''}"
+    },
+
+    {
+      "type": "TextBlock",
+      "text": "Enter your suburb above to get started.",
+      "isSubtle": true,
+      "wrap": true,
+      "$when": "${!hasData && error == ''}"
+    },
+
+    {
+      "type": "Container",
+      "$when": "${hasData && error == '' && page == 0}",
+      "spacing": "medium",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "${iconUrl}",
+                  "width": "64px",
+                  "height": "64px",
+                  "altText": "Weather condition"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "${temperature}°C",
+                  "size": "extraLarge",
+                  "weight": "bolder",
+                  "wrap": false
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Feels like ${feelsLike}°C",
+                  "isSubtle": true,
+                  "spacing": "none",
+                  "wrap": false,
+                  "$when": "${feelsLike != ''}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "ColumnSet",
+          "$when": "${$host.widgetSize != 'small'}",
+          "spacing": "small",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "💧 ${humidity}",
+                  "isSubtle": true,
+                  "wrap": true,
+                  "$when": "${humidity != ''}"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "💨 ${wind}",
+                  "isSubtle": true,
+                  "wrap": true,
+                  "$when": "${wind != ''}"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "🌧 ${rain} since 9am",
+                  "isSubtle": true,
+                  "wrap": true,
+                  "$when": "${rain != ''}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "TextBlock",
+          "text": "📍 ${stationName} · ${stationDist}",
+          "isSubtle": true,
+          "size": "small",
+          "spacing": "small",
+          "wrap": true,
+          "$when": "${stationName != '' && $host.widgetSize != 'small'}"
+        },
+        {
+          "type": "Container",
+          "$when": "${hasWarnings}",
+          "spacing": "small",
+          "style": "attention",
+          "bleed": true,
+          "items": [
+            {
+              "type": "TextBlock",
+              "$data": "${warnings}",
+              "text": "⚠️ ${title}",
+              "color": "attention",
+              "weight": "bolder",
+              "size": "small",
+              "wrap": true,
+              "spacing": "small"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "type": "Container",
+      "$when": "${hasData && error == '' && page == 1}",
+      "spacing": "small",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "6-Day Forecast",
+          "weight": "bolder",
+          "size": "medium",
+          "wrap": true
+        },
+        {
+          "type": "ColumnSet",
+          "$data": "${dailyForecasts}",
+          "spacing": "small",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "80px",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "${dayLabel}",
+                  "size": "small",
+                  "wrap": false
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "32px",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "${iconUrl}",
+                  "width": "28px",
+                  "height": "28px",
+                  "altText": "${desc}"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "${desc}",
+                  "isSubtle": true,
+                  "size": "small",
+                  "wrap": true
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "${maxTemp}° / ${minTemp}°",
+                  "size": "small",
+                  "wrap": false
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "38px",
+              "$when": "${$host.widgetSize != 'small'}",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "${rainChance}",
+                  "isSubtle": true,
+                  "size": "small",
+                  "color": "accent",
+                  "wrap": false
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "type": "Container",
+      "$when": "${hasData && error == '' && page == 2}",
+      "spacing": "small",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Hourly Forecast",
+          "weight": "bolder",
+          "size": "medium",
+          "wrap": true
+        },
+        {
+          "type": "ColumnSet",
+          "$data": "${hourlyForecasts}",
+          "spacing": "small",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "50px",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "${timeLabel}",
+                  "size": "small",
+                  "wrap": false
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "32px",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "${iconUrl}",
+                  "width": "28px",
+                  "height": "28px",
+                  "altText": "Weather"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "${temp}°",
+                  "size": "small",
+                  "weight": "bolder",
+                  "wrap": false
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "$when": "${$host.widgetSize != 'small'}",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "💨 ${wind}",
+                  "isSubtle": true,
+                  "size": "small",
+                  "wrap": true
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "38px",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "${rainChance}",
+                  "color": "accent",
+                  "isSubtle": true,
+                  "size": "small",
+                  "wrap": false
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+
+  ]
+}

@@ -1,0 +1,68 @@
+## ======================================================================
+## Visual Studio & .NET Build Artifacts
+## ======================================================================
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM/
+ARM64/
+[Bb]in/
+[Oo]bj/
+_UpgradeReport_Files/
+
+## ======================================================================
+## Windows Application Packaging & AppX Deployment (Crucial for Widgets)
+## ======================================================================
+AppPackages/
+BundleArtifacts/
+Package.StoreAssociation.xml
+_pkginfo.txt
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+
+## ======================================================================
+## Visual Studio User Settings & Caches
+## ======================================================================
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## ======================================================================
+## NuGet & Package Management
+## ======================================================================
+*.nupkg
+# Don't commit local package downloads; they refresh via restore
+**/packages/*
+!**/packages/build/
+
+## ======================================================================
+## Diagnostics, Logs, and Crash Dumps
+## ======================================================================
+*.log
+*.ilk
+*.meta
+*.pdb
+*.pgc
+*.pgd
+*.rsp
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*.vspscc
+*.vssscc
+*.pidb
+*.scc
+
+## ======================================================================
+## Code Editor Configs (VS Code / Rider)
+## ======================================================================
+.vscode/
+.idea/
+*.sln.iml
