@@ -5,7 +5,7 @@ using Microsoft.Windows.Widgets.Providers;
 using System;
 using Windows.Storage;
 
-namespace CsConsoleWidgetProvider
+namespace Southerly
 {
     internal delegate WidgetImplBase WidgetCreateDelegate(string widgetId, string initialState);
     internal abstract class WidgetImplBase

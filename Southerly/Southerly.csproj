@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
-    <RootNamespace>CsConsoleWidgetProvider</RootNamespace>
+    <RootNamespace>Southerly</RootNamespace>
     <Platforms>ARM64</Platforms>
     <RuntimeIdentifiers>win-arm64</RuntimeIdentifiers>
     <UseWinUI>false</UseWinUI>

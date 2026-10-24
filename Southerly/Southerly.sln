@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.4.33027.239
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CsConsoleWidgetProvider", "CsConsoleWidgetProvider.csproj", "{005BBB74-34DC-42FA-9D88-5237E3CD920F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Southerly", "Southerly.csproj", "{005BBB74-34DC-42FA-9D88-5237E3CD920F}"
 EndProject
 Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "WidgetHelper", "..\WidgetHelper\WidgetHelper.shproj", "{2F76105F-682C-4B53-B6E9-1403A6B6046E}"
 EndProject

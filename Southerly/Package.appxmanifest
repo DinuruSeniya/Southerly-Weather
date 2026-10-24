@@ -9,13 +9,13 @@
   IgnorableNamespaces="uap uap3 rescap">
 
 	<Identity
-	  Name="CsConsoleWidgetProvider"
-	  Publisher="CN=Microsoft Corporation"
+	  Name="Southerly"
+	  Publisher="CN=Dinuru Seniya"
 	  Version="1.0.0.0" />
 
 	<Properties>
-		<DisplayName>CsConsoleWidgetProvider</DisplayName>
-		<PublisherDisplayName>Microsoft Corporation</PublisherDisplayName>
+		<DisplayName>Southerly</DisplayName>
+		<PublisherDisplayName>Dinuru Seniya</PublisherDisplayName>
 		<Logo>Assets\StoreLogo.png</Logo>
 	</Properties>
 
@@ -33,8 +33,8 @@
 		  Executable="$targetnametoken$.exe"
 		  EntryPoint="$targetentrypoint$">
 			<uap:VisualElements
-			  DisplayName="CsConsoleWidgetProvider"
-			  Description="CsConsoleWidgetProvider"
+			  DisplayName="Southerly"
+			  Description="Australian weather widget using local Bureau of Meteorology observations and forecasts"
 			  BackgroundColor="transparent"
 			  Square150x150Logo="Assets\Square150x150Logo.png"
 			  Square44x44Logo="Assets\Square44x44Logo.png">
@@ -44,13 +44,13 @@
 			<Extensions>
 				<com:Extension Category="windows.comServer">
 					<com:ComServer>
-						<com:ExeServer Executable="CsConsoleWidgetProvider.exe" Arguments="-RegisterProcessAsComServer" DisplayName="C# Provider App">
-							<com:Class Id="80DAE84C-DE3C-4F02-8ECD-DCDD1CDECC15" DisplayName="CsConsoleWidgetProvider" />
+						<com:ExeServer Executable="Southerly.exe" Arguments="-RegisterProcessAsComServer" DisplayName="Southerly Widget Provider">
+							<com:Class Id="57FEDA4C-9AD1-4DFC-A4FB-990B59404DED" DisplayName="Southerly Widget Provider" />
 						</com:ExeServer>
 					</com:ComServer>
 				</com:Extension>
 				<uap3:Extension Category="windows.appExtension">
-					<uap3:AppExtension Name="com.microsoft.windows.widgets" DisplayName="CsConsoleWidgetProvider" Id="winappsdk.cs.console.sample" PublicFolder="Public">
+					<uap3:AppExtension Name="com.microsoft.windows.widgets" DisplayName="Southerly" Id="southerly.weather" PublicFolder="Public">
 						<uap3:Properties>
 							<WidgetProvider>
 								<ProviderIcons>
@@ -58,13 +58,13 @@
 								</ProviderIcons>
 								<Activation>
 									<!-- Apps exports COM interface which implements IWidgetProvider -->
-									<CreateInstance ClassId="80DAE84C-DE3C-4F02-8ECD-DCDD1CDECC15" />
+									<CreateInstance ClassId="57FEDA4C-9AD1-4DFC-A4FB-990B59404DED" />
 								</Activation>
 
 								<Definitions>
-									<Definition Id="CSharp_Weather_Widget"
-										DisplayName="Sample Weather Widget (C#)"
-										Description="Weather Widget Description (C#)">
+									<Definition Id="Southerly_Weather"
+										DisplayName="Southerly Weather"
+										Description="Local Australian conditions and forecasts from your nearest Bureau of Meteorology weather station">
 										<Capabilities>
 											<Capability>
 												<Size Name="medium" />
@@ -78,7 +78,7 @@
 												<Icon Path="ProviderAssets\Weather_Icon.png" />
 											</Icons>
 											<Screenshots>
-												<Screenshot Path="ProviderAssets\Weather_Screenshot.png" DisplayAltText="For accessibility" />
+												<Screenshot Path="ProviderAssets\Weather_Screenshot.png" DisplayAltText="Southerly Weather widget showing current conditions and forecast" />
 											</Screenshots>
 											<!-- DarkMode and LightMode are optional -->
 											<DarkMode />

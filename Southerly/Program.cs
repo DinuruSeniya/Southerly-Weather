@@ -6,7 +6,7 @@ using System;
 using System.Runtime.InteropServices;
 using WidgetHelper;
 
-namespace CsConsoleWidgetProvider
+namespace Southerly
 {
     /// <summary>
     /// Main provider entrypoint.
@@ -19,7 +19,7 @@ namespace CsConsoleWidgetProvider
         [MTAThread]
         static void Main(string[] args)
         {
-            Console.WriteLine("CsConsoleWidgetProvider Starting...");
+            Console.WriteLine("Southerly widget provider starting...");
             if (args.Length > 0 && args[0] == "-RegisterProcessAsComServer")
             {
                 WinRT.ComWrappersSupport.InitializeComWrappers();

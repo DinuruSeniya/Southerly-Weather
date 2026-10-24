@@ -1,7 +1,7 @@
 ﻿// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using CsConsoleWidgetProvider;
+using Southerly;
 using Microsoft.Windows.Widgets.Providers;
 using System;
 using System.Collections.Generic;
@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 
 [ComVisible(true)]
 [ComDefaultInterface(typeof(IWidgetProvider))]
-[Guid("80DAE84C-DE3C-4F02-8ECD-DCDD1CDECC15")]
+[Guid("57FEDA4C-9AD1-4DFC-A4FB-990B59404DED")]
 public sealed class WidgetProvider : IWidgetProvider
 {
     public WidgetProvider()

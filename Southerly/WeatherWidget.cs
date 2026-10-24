@@ -17,11 +17,11 @@ using System.Threading.Tasks;
 
 #nullable enable
 
-namespace CsConsoleWidgetProvider
+namespace Southerly
 {
     internal class WeatherWidget : WidgetImplBase
     {
-        public static string DefinitionId { get; } = "CSharp_Weather_Widget";
+        public static string DefinitionId { get; } = "Southerly_Weather";
 
         private const string BomApiBase = "https://api.weather.bom.gov.au/v1";
 
