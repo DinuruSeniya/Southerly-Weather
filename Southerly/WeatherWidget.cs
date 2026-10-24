@@ -364,18 +364,26 @@ internal sealed class WeatherWidget
             wind = Wind(hr?["wind"])
         }).ToList();
 
-        var warnings = warned
-            .Select(w => new { title = (string?)w?["title"] ?? "", major = (string?)w?["warning_group_type"] != "minor" })
-            .Where(w => w.title != "")
-            .OrderByDescending(w => w.major)
-            .Take(2)
-            .ToList();
-
         // BOM's own page for the place the user picked, e.g. bom.gov.au/places/vic/scoresby/forecast/
         // (the API may name the same spot differently, so the link uses the picked name).
         var parts = suburb.Split(',', 2, StringSplitOptions.TrimEntries);
         var slug = Regex.Replace(Regex.Replace(parts[0].ToLowerInvariant(), "['’]", ""), "[^a-z0-9]+", "-").Trim('-');   // O'Connor -> oconnor
         var bomUrl = parts.Length == 2 ? $"https://www.bom.gov.au/places/{parts[1].ToLowerInvariant()}/{slug}/forecast/" : "https://www.bom.gov.au/";
+
+        // Severe first. Each links to its own page: type severe_thunderstorm_warning + id VIC_RC022_IDV21035
+        // -> bom.gov.au/warning/severe-thunderstorm-warning/IDV21035. The label drops "Warning"; the ⚠ says it.
+        var warnings = warned
+            .Select(w => new
+            {
+                title = (string?)w?["title"] ?? "",
+                label = Regex.Replace((string?)w?["short_title"] ?? (string?)w?["title"] ?? "", " Warning$", ""),
+                major = (string?)w?["warning_group_type"] != "minor",
+                url = (string?)w?["type"] is string type && (string?)w?["id"] is string id
+                    ? $"https://www.bom.gov.au/warning/{type.Replace('_', '-')}/{id.Split('_')[^1]}" : bomUrl
+            })
+            .Where(w => w.title != "")
+            .OrderByDescending(w => w.major)
+            .ToList();
         var distance = (double?)obs?["station"]?["distance"];
 
         return JsonSerializer.SerializeToNode(new
@@ -409,7 +417,8 @@ internal sealed class WeatherWidget
             hourlyForecasts = hourly,
             hourlyStrip = hourly.Take(5),
             warnings,
-            hasWarnings = warnings.Count > 0
+            hasWarnings = warnings.Count > 0,
+            warningStyle = warnings.Any(w => w.major) ? "attention" : "warning"
         })!.AsObject();
     }
 
