@@ -19,7 +19,7 @@
 
     {
       "type": "ColumnSet",
-      "$when": "${hasData && !editing && error == ''}",
+      "$when": "${hasData && !editing && error == '' && $host.widgetSize == 'medium'}",
       "columns": [
         {
           "type": "Column",
@@ -115,7 +115,7 @@
           "text": "Weather from the Bureau of Meteorology",
           "weight": "bolder",
           "wrap": true,
-          "$when": "${!hasData}"
+          "$when": "${!hasData && $host.widgetSize != 'small'}"
         },
         {
           "type": "TextBlock",
@@ -123,7 +123,7 @@
           "isSubtle": true,
           "spacing": "none",
           "wrap": true,
-          "$when": "${!hasData}"
+          "$when": "${!hasData && $host.widgetSize != 'small'}"
         },
         {
           "type": "ColumnSet",
@@ -137,7 +137,7 @@
                 {
                   "type": "Input.Text",
                   "id": "suburb",
-                  "placeholder": "Suburb, state or postcode",
+                  "placeholder": "${$host.widgetSize == 'small' ? 'Suburb or postcode' : 'Suburb, state or postcode'}",
                   "value": "${suburb}"
                 }
               ]
@@ -177,6 +177,7 @@
           "weight": "bolder",
           "size": "small",
           "wrap": true,
+          "maxLines": 2,
           "$when": "${editError != ''}"
         },
         {
@@ -186,6 +187,7 @@
           "weight": "bolder",
           "size": "small",
           "wrap": true,
+          "maxLines": 2,
           "$when": "${error != '' && editError == ''}"
         }
       ]
@@ -193,7 +195,7 @@
 
     {
       "type": "Container",
-      "$when": "${hasMatches}",
+      "$when": "${hasMatches && $host.widgetSize != 'small'}",
       "items": [
         {
           "type": "TextBlock",
@@ -236,7 +238,122 @@
 
     {
       "type": "Container",
-      "$when": "${hasData && !editing && error == '' && page == 0}",
+      "$when": "${hasMatches && $host.widgetSize == 'small'}",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Which one did you mean?",
+          "size": "small",
+          "isSubtle": true,
+          "wrap": false
+        },
+        {
+          "type": "ColumnSet",
+          "spacing": "small",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "Input.ChoiceSet",
+                  "id": "pick",
+                  "style": "compact",
+                  "value": "${matches[0].value}",
+                  "choices": [
+                    {
+                      "$data": "${matches}",
+                      "title": "${title}",
+                      "value": "${value}"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "items": [
+                {
+                  "type": "ActionSet",
+                  "actions": [
+                    {
+                      "type": "Action.Execute",
+                      "title": "Use",
+                      "verb": "pickLocation",
+                      "style": "positive"
+                    },
+                    {
+                      "type": "Action.Execute",
+                      "title": "✕",
+                      "tooltip": "Back",
+                      "verb": "backToSearch",
+                      "associatedInputs": "none"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "type": "Container",
+      "$when": "${hasData && !editing && error == '' && $host.widgetSize == 'small'}",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "items": [
+                { "type": "Image", "url": "${iconUrl}", "width": "48px", "height": "48px", "altText": "${summary}" }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "items": [
+                { "type": "TextBlock", "text": "${temperature}°", "size": "extraLarge", "weight": "bolder", "wrap": false },
+                { "type": "TextBlock", "text": "Feels ${feelsLike}°", "isSubtle": true, "size": "small", "spacing": "none", "wrap": false, "$when": "${feelsLike != ''}" }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "verticalContentAlignment": "center",
+              "items": [
+                { "type": "TextBlock", "text": "${summary}", "weight": "bolder", "horizontalAlignment": "right", "wrap": false, "$when": "${summary != ''}" },
+                { "type": "TextBlock", "text": "H ${todayMax}° · L ${todayMin}°", "isSubtle": true, "size": "small", "horizontalAlignment": "right", "spacing": "none", "wrap": false, "$when": "${todayMax != '' && todayMin != ''}" },
+                { "type": "TextBlock", "text": "H ${todayMax}°", "isSubtle": true, "size": "small", "horizontalAlignment": "right", "spacing": "none", "wrap": false, "$when": "${todayMax != '' && todayMin == ''}" },
+                { "type": "TextBlock", "text": "${todayRain} chance of rain", "color": "accent", "size": "small", "horizontalAlignment": "right", "spacing": "none", "wrap": false, "$when": "${todayRain != ''}" }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "TextBlock",
+          "text": "⚠ ${warnings[0].title}",
+          "color": "attention",
+          "weight": "bolder",
+          "size": "small",
+          "spacing": "small",
+          "wrap": false,
+          "$when": "${hasWarnings}"
+        }
+      ]
+    },
+
+    {
+      "type": "Container",
+      "$when": "${hasData && !editing && error == '' && $host.widgetSize == 'medium' && page == 0}",
       "separator": true,
       "items": [
         {
@@ -247,13 +364,7 @@
               "width": "auto",
               "verticalContentAlignment": "center",
               "items": [
-                {
-                  "type": "Image",
-                  "url": "${iconUrl}",
-                  "width": "64px",
-                  "height": "64px",
-                  "altText": "${summary}"
-                }
+                { "type": "Image", "url": "${iconUrl}", "width": "64px", "height": "64px", "altText": "${summary}" }
               ]
             },
             {
@@ -261,30 +372,9 @@
               "width": "stretch",
               "verticalContentAlignment": "center",
               "items": [
-                {
-                  "type": "TextBlock",
-                  "text": "${temperature}°",
-                  "size": "extraLarge",
-                  "weight": "bolder",
-                  "wrap": false
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${summary}",
-                  "weight": "bolder",
-                  "spacing": "none",
-                  "wrap": false,
-                  "$when": "${summary != ''}"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "Feels like ${feelsLike}°",
-                  "isSubtle": true,
-                  "size": "small",
-                  "spacing": "none",
-                  "wrap": false,
-                  "$when": "${feelsLike != ''}"
-                }
+                { "type": "TextBlock", "text": "${temperature}°", "size": "extraLarge", "weight": "bolder", "wrap": false },
+                { "type": "TextBlock", "text": "${summary}", "weight": "bolder", "spacing": "none", "wrap": false, "$when": "${summary != ''}" },
+                { "type": "TextBlock", "text": "Feels like ${feelsLike}°", "isSubtle": true, "size": "small", "spacing": "none", "wrap": false, "$when": "${feelsLike != ''}" }
               ]
             },
             {
@@ -292,23 +382,8 @@
               "width": "auto",
               "verticalContentAlignment": "center",
               "items": [
-                {
-                  "type": "TextBlock",
-                  "text": "H ${todayMax}°",
-                  "weight": "bolder",
-                  "horizontalAlignment": "right",
-                  "wrap": false,
-                  "$when": "${todayMax != ''}"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "L ${todayMin}°",
-                  "isSubtle": true,
-                  "horizontalAlignment": "right",
-                  "spacing": "none",
-                  "wrap": false,
-                  "$when": "${todayMin != ''}"
-                }
+                { "type": "TextBlock", "text": "H ${todayMax}°", "weight": "bolder", "horizontalAlignment": "right", "wrap": false, "$when": "${todayMax != ''}" },
+                { "type": "TextBlock", "text": "L ${todayMin}°", "isSubtle": true, "horizontalAlignment": "right", "spacing": "none", "wrap": false, "$when": "${todayMin != ''}" }
               ]
             }
           ]
@@ -347,24 +422,6 @@
           ]
         },
         {
-          "type": "ColumnSet",
-          "$when": "${$host.widgetSize == 'large'}",
-          "spacing": "medium",
-          "separator": true,
-          "columns": [
-            {
-              "type": "Column",
-              "$data": "${hourlyStrip}",
-              "width": "stretch",
-              "items": [
-                { "type": "TextBlock", "text": "${timeLabel}", "isSubtle": true, "size": "small", "horizontalAlignment": "center", "wrap": false },
-                { "type": "Image", "url": "${iconUrl}", "width": "32px", "height": "32px", "horizontalAlignment": "center", "spacing": "none", "altText": "Weather" },
-                { "type": "TextBlock", "text": "${temp}°", "weight": "bolder", "horizontalAlignment": "center", "spacing": "none", "wrap": false }
-              ]
-            }
-          ]
-        },
-        {
           "type": "Container",
           "$when": "${hasWarnings}",
           "spacing": "small",
@@ -396,7 +453,7 @@
 
     {
       "type": "Container",
-      "$when": "${hasData && !editing && error == '' && page == 2}",
+      "$when": "${hasData && !editing && error == '' && $host.widgetSize == 'medium' && page == 2}",
       "separator": true,
       "items": [
         {
@@ -451,7 +508,7 @@
 
     {
       "type": "Container",
-      "$when": "${hasData && !editing && error == '' && page == 1}",
+      "$when": "${hasData && !editing && error == '' && $host.widgetSize == 'medium' && page == 1}",
       "separator": true,
       "items": [
         {
@@ -505,6 +562,203 @@
               "verticalContentAlignment": "center",
               "items": [
                 { "type": "TextBlock", "text": "${minTemp}°", "isSubtle": true, "size": "small", "horizontalAlignment": "right", "wrap": false, "$when": "${minTemp != ''}" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "type": "Container",
+      "$when": "${hasData && !editing && error == '' && $host.widgetSize == 'large'}",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "items": [
+                { "type": "Image", "url": "${iconUrl}", "width": "64px", "height": "64px", "altText": "${summary}" }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "verticalContentAlignment": "center",
+              "items": [
+                { "type": "TextBlock", "text": "${temperature}°", "size": "extraLarge", "weight": "bolder", "wrap": false },
+                { "type": "TextBlock", "text": "${summary}", "weight": "bolder", "spacing": "none", "wrap": false, "$when": "${summary != ''}" },
+                { "type": "TextBlock", "text": "Feels like ${feelsLike}°", "isSubtle": true, "size": "small", "spacing": "none", "wrap": false, "$when": "${feelsLike != ''}" }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "items": [
+                { "type": "TextBlock", "text": "H ${todayMax}°", "weight": "bolder", "horizontalAlignment": "right", "wrap": false, "$when": "${todayMax != ''}" },
+                { "type": "TextBlock", "text": "L ${todayMin}°", "isSubtle": true, "horizontalAlignment": "right", "spacing": "none", "wrap": false, "$when": "${todayMin != ''}" }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "ColumnSet",
+          "spacing": "small",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "$when": "${humidity != ''}",
+              "items": [
+                { "type": "TextBlock", "text": "${humidity}", "weight": "bolder", "wrap": false },
+                { "type": "TextBlock", "text": "Humidity", "isSubtle": true, "size": "small", "spacing": "none", "wrap": false }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "$when": "${wind != ''}",
+              "items": [
+                { "type": "TextBlock", "text": "${wind}", "weight": "bolder", "wrap": false },
+                { "type": "TextBlock", "text": "Wind", "isSubtle": true, "size": "small", "spacing": "none", "wrap": false }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "$when": "${rain != ''}",
+              "items": [
+                { "type": "TextBlock", "text": "${rain}", "weight": "bolder", "wrap": false },
+                { "type": "TextBlock", "text": "Since 9am", "isSubtle": true, "size": "small", "spacing": "none", "wrap": false }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "ColumnSet",
+          "spacing": "small",
+          "separator": true,
+          "columns": [
+            {
+              "type": "Column",
+              "$data": "${hourlyStrip}",
+              "width": "stretch",
+              "items": [
+                { "type": "TextBlock", "text": "${timeLabel}", "isSubtle": true, "size": "small", "horizontalAlignment": "center", "wrap": false },
+                { "type": "Image", "url": "${iconUrl}", "width": "28px", "height": "28px", "horizontalAlignment": "center", "spacing": "none", "altText": "Weather" },
+                { "type": "TextBlock", "text": "${temp}°", "weight": "bolder", "size": "small", "horizontalAlignment": "center", "spacing": "none", "wrap": false },
+                { "type": "TextBlock", "text": "${rainChance}", "color": "accent", "size": "small", "horizontalAlignment": "center", "spacing": "none", "wrap": false, "$when": "${rainChance != ''}" }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "spacing": "small",
+          "separator": true,
+          "items": [
+            {
+              "type": "ColumnSet",
+              "$data": "${dailyCompact}",
+              "spacing": "none",
+              "columns": [
+                {
+                  "type": "Column",
+                  "width": "48px",
+                  "verticalContentAlignment": "center",
+                  "items": [
+                    { "type": "TextBlock", "text": "${dayLabel}", "weight": "bolder", "size": "small", "wrap": false }
+                  ]
+                },
+                {
+                  "type": "Column",
+                  "width": "28px",
+                  "verticalContentAlignment": "center",
+                  "items": [
+                    { "type": "Image", "url": "${iconUrl}", "width": "24px", "height": "24px", "altText": "${desc}" }
+                  ]
+                },
+                {
+                  "type": "Column",
+                  "width": "stretch",
+                  "verticalContentAlignment": "center",
+                  "items": [
+                    { "type": "TextBlock", "text": "${desc}", "isSubtle": true, "size": "small", "wrap": false }
+                  ]
+                },
+                {
+                  "type": "Column",
+                  "width": "auto",
+                  "verticalContentAlignment": "center",
+                  "items": [
+                    { "type": "TextBlock", "text": "${rainChance}", "size": "small", "color": "accent", "wrap": false }
+                  ]
+                },
+                {
+                  "type": "Column",
+                  "width": "32px",
+                  "verticalContentAlignment": "center",
+                  "items": [
+                    { "type": "TextBlock", "text": "${maxTemp}°", "weight": "bolder", "size": "small", "horizontalAlignment": "right", "wrap": false, "$when": "${maxTemp != ''}" }
+                  ]
+                },
+                {
+                  "type": "Column",
+                  "width": "32px",
+                  "verticalContentAlignment": "center",
+                  "items": [
+                    { "type": "TextBlock", "text": "${minTemp}°", "isSubtle": true, "size": "small", "horizontalAlignment": "right", "wrap": false, "$when": "${minTemp != ''}" }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "$when": "${hasWarnings}",
+          "spacing": "small",
+          "style": "attention",
+          "items": [
+            {
+              "type": "TextBlock",
+              "$data": "${warnings}",
+              "text": "⚠ ${title}",
+              "weight": "bolder",
+              "size": "small",
+              "wrap": false,
+              "spacing": "none"
+            }
+          ]
+        },
+        {
+          "type": "ColumnSet",
+          "spacing": "small",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "verticalContentAlignment": "center",
+              "items": [
+                { "type": "TextBlock", "text": "${stationName} station · ${stationDist}", "isSubtle": true, "size": "small", "wrap": false, "$when": "${stationName != ''}" }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "center",
+              "selectAction": {
+                "type": "Action.Execute",
+                "verb": "editLocation",
+                "associatedInputs": "none",
+                "tooltip": "Change location"
+              },
+              "items": [
+                { "type": "TextBlock", "text": "📍 Change", "isSubtle": true, "size": "small", "wrap": false }
               ]
             }
           ]

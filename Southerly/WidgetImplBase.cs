@@ -40,6 +40,7 @@ namespace Southerly
         public virtual void Deactivate() { }
         public virtual void OnActionInvoked(WidgetActionInvokedArgs actionInvokedArgs) { }
         public virtual void OnWidgetContextChanged(WidgetContextChangedArgs contextChangedArgs) { }
+        public virtual void OnCustomizationRequested() { }
 
         public abstract string GetTemplateForWidget();
         public abstract string GetDataForWidget();

@@ -252,6 +252,16 @@ namespace Southerly
             }
         }
 
+        // "Customize widget" in the widget's ⋯ menu — the only way to change
+        // location on the small size, which has no room for a Change link.
+        public override void OnCustomizationRequested()
+        {
+            _editing   = true;
+            _editError = "";
+            _matches.Clear();
+            PushUpdate();
+        }
+
         private void UseLocation(BomLocation location)
         {
             SetLocation(location);
@@ -377,6 +387,7 @@ namespace Southerly
             var todaySummary    = "";
             var todayMax        = "";
             var todayMin        = "";
+            var todayRain       = "";
 
             try
             {
@@ -401,6 +412,7 @@ namespace Southerly
                         var desc     = (d?["short_text"]?.GetValue<string>() ?? "").TrimEnd('.');
                         var maxTemp  = FormatTemp(d?["temp_max"]?.GetValue<double?>());
                         var minTemp  = FormatTemp(d?["temp_min"]?.GetValue<double?>());
+                        var chance   = FormatChance(d?["rain"]?["chance"]?.GetValue<int?>());
 
                         if (first)
                         {
@@ -408,6 +420,7 @@ namespace Southerly
                             todaySummary  = desc;
                             todayMax      = maxTemp;
                             todayMin      = minTemp;
+                            todayRain     = chance;
                             first = false;
                         }
 
@@ -418,7 +431,7 @@ namespace Southerly
                             desc,
                             maxTemp,
                             minTemp,
-                            rainChance  = FormatChance(d?["rain"]?["chance"]?.GetValue<int?>())
+                            rainChance  = chance
                         });
                     }
                 }
@@ -503,6 +516,7 @@ namespace Southerly
                 summary           = todaySummary,
                 todayMax,
                 todayMin,
+                todayRain,
                 humidity          = humidity.HasValue ? $"{(int)humidity.Value}%" : "",
                 rain              = rainSince9am.HasValue ? $"{rainSince9am.Value:0.#} mm" : "",
                 wind              = windKmh.HasValue ? $"{(int)windKmh.Value} km/h {windDir}".Trim() : "",
@@ -512,6 +526,8 @@ namespace Southerly
                 dailyForecasts,
                 hourlyForecasts,
                 hourlyStrip       = hourlyForecasts.Take(5),
+                // Large size shows everything at once; drop a day to make room for warnings.
+                dailyCompact      = dailyForecasts.Take(warnings.Count > 0 ? 4 : 5),
                 warnings,
                 hasWarnings       = warnings.Count > 0,
                 error             = ""
@@ -534,11 +550,12 @@ namespace Southerly
             {
                 hasData,
                 suburb, iconUrl = "", backgroundImageUrl = "", headerIconUrl = "",
-                temperature = "", feelsLike = "", summary = "", todayMax = "", todayMin = "",
+                temperature = "", feelsLike = "", summary = "", todayMax = "", todayMin = "", todayRain = "",
                 humidity = "", rain = "", wind = "", stationName = "", stationDist = "",
                 dailyForecasts = Array.Empty<object>(),
                 hourlyForecasts = Array.Empty<object>(),
                 hourlyStrip = Array.Empty<object>(),
+                dailyCompact = Array.Empty<object>(),
                 warnings = Array.Empty<object>(), hasWarnings = false,
                 error
             })!.AsObject();

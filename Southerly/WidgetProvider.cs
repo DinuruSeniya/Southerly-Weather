@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 [ComVisible(true)]
 [ComDefaultInterface(typeof(IWidgetProvider))]
 [Guid("57FEDA4C-9AD1-4DFC-A4FB-990B59404DED")]
-public sealed class WidgetProvider : IWidgetProvider
+public sealed class WidgetProvider : IWidgetProvider, IWidgetProvider2
 {
     public WidgetProvider()
     {
@@ -136,6 +136,15 @@ public sealed class WidgetProvider : IWidgetProvider
     {
         Console.WriteLine($"OnWidgetContextChanged id: {contextChangedArgs.WidgetContext.Id} definitionId: {contextChangedArgs.WidgetContext.DefinitionId}");
         WidgetInstances[contextChangedArgs.WidgetContext.Id].OnWidgetContextChanged(contextChangedArgs);
+    }
+
+    // Handle the OnCustomizationRequested call. This is fired when the user picks
+    // "Customize widget" from the widget's ellipsis menu (IsCustomizable="true"
+    // in the manifest).
+    public void OnCustomizationRequested(WidgetCustomizationRequestedArgs customizationRequestedArgs)
+    {
+        Console.WriteLine($"OnCustomizationRequested id: {customizationRequestedArgs.WidgetContext.Id}");
+        WidgetInstances[customizationRequestedArgs.WidgetContext.Id].OnCustomizationRequested();
     }
 
     // Handle the Activate call. This function is called when widgets host starts listening

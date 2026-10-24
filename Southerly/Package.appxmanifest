@@ -11,7 +11,7 @@
 	<Identity
 	  Name="Southerly"
 	  Publisher="CN=Dinuru Seniya"
-	  Version="1.0.1.0" />
+	  Version="1.0.2.0" />
 
 	<Properties>
 		<DisplayName>Southerly</DisplayName>
@@ -64,8 +64,12 @@
 								<Definitions>
 									<Definition Id="Southerly_Weather"
 										DisplayName="Southerly Weather"
-										Description="Local Australian conditions and forecasts from your nearest Bureau of Meteorology weather station">
+										Description="Local Australian conditions and forecasts from your nearest Bureau of Meteorology weather station"
+										IsCustomizable="true">
 										<Capabilities>
+											<Capability>
+												<Size Name="small" />
+											</Capability>
 											<Capability>
 												<Size Name="medium" />
 											</Capability>
