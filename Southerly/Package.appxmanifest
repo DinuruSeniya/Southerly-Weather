@@ -11,7 +11,7 @@
 	<Identity
 	  Name="Southerly"
 	  Publisher="CN=Dinuru Seniya"
-	  Version="1.0.0.0" />
+	  Version="1.0.1.0" />
 
 	<Properties>
 		<DisplayName>Southerly</DisplayName>
@@ -80,8 +80,11 @@
 											<Screenshots>
 												<Screenshot Path="ProviderAssets\Weather_Screenshot.png" DisplayAltText="Southerly Weather widget showing current conditions and forecast" />
 											</Screenshots>
-											<!-- DarkMode and LightMode are optional -->
-											<DarkMode />
+											<DarkMode>
+												<Screenshots>
+													<Screenshot Path="ProviderAssets\Weather_Screenshot_Dark.png" DisplayAltText="Southerly Weather widget showing current conditions and forecast" />
+												</Screenshots>
+											</DarkMode>
 											<LightMode />
 										</ThemeResources>
 									</Definition>

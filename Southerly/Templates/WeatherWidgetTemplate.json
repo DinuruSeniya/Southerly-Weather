@@ -4,7 +4,7 @@
   "version": "1.6",
 
   "header": {
-    "text": "${suburb != '' ? suburb : 'BOM Weather'}",
+    "text": "${suburb != '' ? suburb : 'Southerly'}",
     "iconUrl": "${headerIconUrl}"
   },
 
