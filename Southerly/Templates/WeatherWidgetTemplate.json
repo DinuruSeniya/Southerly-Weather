@@ -107,14 +107,7 @@
                 { "type": "TextBlock", "text": "${todayRain} chance of rain", "color": "accent", "size": "small", "horizontalAlignment": "right", "spacing": "none", "wrap": false, "$when": "${todayRain != ''}" }
               ] }
           ]
-        },
-        { "type": "ColumnSet", "$data": "${warnings}", "$when": "${$index == 0}", "spacing": "small",
-          "selectAction": { "type": "Action.OpenUrl", "url": "${url}", "tooltip": "${title}" },
-          "columns": [
-            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "⚠ ${label}", "color": "${major ? 'attention' : 'warning'}", "weight": "bolder", "size": "small", "wrap": false }] },
-            { "type": "Column", "width": "auto", "$when": "${count($root.warnings) > 1}",
-              "items": [{ "type": "TextBlock", "text": "+${count($root.warnings) - 1}", "color": "${major ? 'attention' : 'warning'}", "size": "small", "wrap": false }] }
-          ] }
+        }
       ]
     },
 
@@ -229,29 +222,27 @@
     },
 
     {
+      "type": "Carousel",
+      "$comment": "Warnings on every size (Medium: Now page), one per page to swipe through; each opens its own page on bom.gov.au",
+      "$when": "${hasData && !editing && error == '' && hasWarnings && ($host.widgetSize != 'medium' || page == 0)}",
+      "spacing": "small",
+      "pages": [
+        { "type": "CarouselPage", "$data": "${warnings}", "style": "${major ? 'attention' : 'warning'}",
+          "selectAction": { "type": "Action.OpenUrl", "url": "${url}", "tooltip": "${title}" },
+          "items": [{ "type": "ColumnSet", "columns": [
+            { "type": "Column", "width": "stretch", "verticalContentAlignment": "center",
+              "items": [{ "type": "TextBlock", "text": "⚠ ${label}", "weight": "bolder", "size": "small", "wrap": false }] },
+            { "type": "Column", "width": "auto", "verticalContentAlignment": "center", "$when": "${count($root.warnings) > 1}",
+              "items": [{ "type": "TextBlock", "text": "${$index + 1}/${count($root.warnings)}", "size": "small", "isSubtle": true, "wrap": false }] }
+          ] }] }
+      ]
+    },
+
+    {
       "type": "Container",
-      "$comment": "Medium Now page and Large: warnings (tap for details) and the observation source",
+      "$comment": "Medium Now page and Large: the observation source",
       "$when": "${hasData && !editing && error == '' && (($host.widgetSize == 'medium' && page == 0) || $host.widgetSize == 'large')}",
       "items": [
-        {
-          "type": "Container",
-          "$when": "${hasWarnings}",
-          "spacing": "small",
-          "style": "${warningStyle}",
-          "$comment": "One row per warning (Large 2, Medium 1), each opening its own page; the last row counts the rest",
-          "items": [
-            { "type": "ColumnSet", "$data": "${warnings}", "$when": "${$index < ($host.widgetSize == 'large' ? 2 : 1)}", "spacing": "none",
-              "selectAction": { "type": "Action.OpenUrl", "url": "${url}", "tooltip": "${title}" },
-              "columns": [
-                { "type": "Column", "width": "stretch", "verticalContentAlignment": "center",
-                  "items": [{ "type": "TextBlock", "text": "⚠ ${label}", "weight": "bolder", "size": "small", "wrap": false }] },
-                { "type": "Column", "width": "auto", "verticalContentAlignment": "center",
-                  "$when": "${$index == ($host.widgetSize == 'large' ? 1 : 0) && count($root.warnings) > $index + 1}",
-                  "selectAction": { "type": "Action.OpenUrl", "url": "${$root.bomUrl}", "tooltip": "All warnings on bom.gov.au" },
-                  "items": [{ "type": "TextBlock", "text": "+${count($root.warnings) - $index - 1} more", "size": "small", "wrap": false }] }
-              ] }
-          ]
-        },
         {
           "type": "ColumnSet",
           "spacing": "small",

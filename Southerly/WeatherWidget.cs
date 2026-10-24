@@ -417,8 +417,7 @@ internal sealed class WeatherWidget
             hourlyForecasts = hourly,
             hourlyStrip = hourly.Take(5),
             warnings,
-            hasWarnings = warnings.Count > 0,
-            warningStyle = warnings.Any(w => w.major) ? "attention" : "warning"
+            hasWarnings = warnings.Count > 0
         })!.AsObject();
     }
 
