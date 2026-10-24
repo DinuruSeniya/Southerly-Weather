@@ -251,9 +251,6 @@ internal sealed class WeatherWidget
         if (_geohash == "" || (!refresh && _weather != null)) return;
         try
         {
-            // Saved before the full 7-character geohash was kept (bom.gov.au links need it): look it up again.
-            if (_geohash.Length == 6)
-                _geohash = SearchAsync(_suburb).GetAwaiter().GetResult().Select(p => p.Geohash).FirstOrDefault(g => g.StartsWith(_geohash)) ?? _geohash;
             var fresh = Fetch(_geohash, _suburb).GetAwaiter().GetResult();
             WarnAboutNew(_weather, fresh);
             (_weather, _loadedAt, _stale) = (fresh, DateTime.UtcNow, false);
@@ -298,7 +295,7 @@ internal sealed class WeatherWidget
     }
 
     // Observations are required; the rest degrade to blanks if BOM is slow or failing.
-    // The API takes a 6-character geohash; bom.gov.au links use the full 7.
+    // The API takes a 6-character geohash; BOM's search hands out 7, so trim.
     private static async Task<JsonObject> Fetch(string geohash, string suburb)
     {
         var cell = geohash[..Math.Min(6, geohash.Length)];
@@ -374,8 +371,11 @@ internal sealed class WeatherWidget
             .Take(2)
             .ToList();
 
-        // The link names the place the user picked; the API may call that spot something else.
-        var slug = string.Join('-', suburb.Split(',')[0].ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        // BOM's own page for the place the user picked, e.g. bom.gov.au/places/vic/scoresby/forecast/
+        // (the API may name the same spot differently, so the link uses the picked name).
+        var parts = suburb.Split(',', 2, StringSplitOptions.TrimEntries);
+        var slug = Regex.Replace(Regex.Replace(parts[0].ToLowerInvariant(), "['’]", ""), "[^a-z0-9]+", "-").Trim('-');   // O'Connor -> oconnor
+        var bomUrl = parts.Length == 2 ? $"https://www.bom.gov.au/places/{parts[1].ToLowerInvariant()}/{slug}/forecast/" : "https://www.bom.gov.au/";
         var distance = (double?)obs?["station"]?["distance"];
 
         return JsonSerializer.SerializeToNode(new
@@ -395,7 +395,7 @@ internal sealed class WeatherWidget
             wind = Wind(obs?["wind"]),
             station = (string?)obs?["station"]?["name"] + (distance is double m ? $" · {m / 1000:0.#} km" : ""),
             observedAt = Clock(obsRoot?["metadata"]?["observation_time"]),
-            bomUrl = $"https://weather.bom.gov.au/location/{geohash}-{slug}",
+            bomUrl,
             dailyForecasts = days.Take(5).Select(d => new
             {
                 dayLabel = DateTimeOffset.TryParse((string?)d?["date"], out var date) && TimeZoneInfo.ConvertTime(date, zone).Date != today
