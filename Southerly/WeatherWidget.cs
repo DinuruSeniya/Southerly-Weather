@@ -2,712 +2,463 @@
 // Licensed under the MIT License.
 
 using Microsoft.Windows.Widgets.Providers;
-using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
+using System.Globalization;
+using System.Security;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Threading;
-using System.Threading.Tasks;
+using Windows.Data.Xml.Dom;
+using Windows.Devices.Geolocation;
+using Windows.UI.Notifications;
 
-#nullable enable
+namespace Southerly;
 
-namespace Southerly
+/// <summary>One pinned Southerly widget: its location, tab and edit state, and the BOM data it shows.</summary>
+internal sealed class WeatherWidget
 {
-    internal class WeatherWidget : WidgetImplBase
+    public const string DefinitionId = "Southerly_Weather";
+
+    private const string Api = "https://api.weather.bom.gov.au/v1";
+    private const string Sep = "|||";   // custom state is "suburb|||page|||geohash"
+    private const int MaxMatches = 6;
+
+    // BOM publishes observations on the half-hour.
+    private static readonly TimeSpan RefreshEvery = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(10);
+    private static readonly string[] States = ["VIC", "NSW", "QLD", "SA", "WA", "TAS", "NT", "ACT"];
+
+    private static readonly string AssetDir = Path.Combine(AppContext.BaseDirectory, "Assets");
+    private static readonly string Template =
+        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Templates", "WeatherWidgetTemplate.json"));
+    private static readonly HttpClient Http = new()
     {
-        public static string DefinitionId { get; } = "Southerly_Weather";
+        Timeout = TimeSpan.FromSeconds(10),
+        DefaultRequestHeaders = { { "User-Agent", "Southerly/1.0" } }
+    };
+    private static readonly Dictionary<string, string> DataUris = new();
 
-        private const string BomApiBase = "https://api.weather.bom.gov.au/v1";
+    // BOM icon_descriptor -> icon file in Assets/Icons (unlisted descriptors are "cloudy").
+    private static readonly Dictionary<string, string> Icons = new()
+    {
+        ["sunny"] = "sunny", ["clear"] = "clear", ["mostly_sunny"] = "partly", ["partly_cloudy"] = "partly",
+        ["hazy"] = "haze", ["dusty"] = "dust", ["fog"] = "fog", ["frost"] = "frost", ["snow"] = "snow",
+        ["light_shower"] = "shower", ["shower"] = "shower", ["light_rain"] = "shower",
+        ["rain"] = "rain", ["heavy_shower"] = "rain", ["heavy_rain"] = "rain",
+        ["storm"] = "storm", ["wind"] = "wind", ["cyclone"] = "wind",
+    };
 
-        // State is encoded as "suburb|||pageNumber|||geohash" so it survives restarts.
-        // Older states may be just "suburb" or "suburb|||page"; the geohash is then
-        // resolved from the suburb name on the next refresh.
-        private const string StateSep = "|||";
+    // Icon -> background photo in Assets/Backgrounds (others use "cloudy").
+    private static readonly Dictionary<string, string> Photos = new()
+    {
+        ["sunny"] = "sunny", ["partly"] = "partly_cloudy", ["clear"] = "night", ["partly_night"] = "night",
+        ["shower"] = "rain", ["rain"] = "rain", ["storm"] = "storm", ["snow"] = "snow", ["frost"] = "snow", ["fog"] = "fog",
+    };
 
-        private static readonly HashSet<string> AuStates = new(StringComparer.OrdinalIgnoreCase)
+    private sealed record Place(string Name, string State, string Postcode, string Geohash)
+    {
+        public string Display => State == "" ? Name : $"{Name}, {State}";
+        public string Title => Postcode == "" ? Display : $"{Display} {Postcode}";
+    }
+
+    private readonly string _id;
+    private readonly object _gate = new();
+    private string _suburb = "", _geohash = "";
+    private int _page;                       // 0 now, 1 daily, 2 hourly
+    private bool _editing, _stale;
+    private string _editError = "";
+    private List<Place> _matches = [];
+    private JsonObject? _weather;            // last fetch for _geohash
+    private DateTime _loadedAt;
+    private Timer? _timer;
+
+    public WeatherWidget(string id, string state)
+    {
+        _id = id;
+        var p = state.Split(Sep);
+        if (p.Length == 3)
+            (_suburb, _page, _geohash) = (p[0], int.TryParse(p[1], out var n) ? n : 0, p[2]);
+    }
+
+    public string State => $"{_suburb}{Sep}{_page}{Sep}{_geohash}";
+
+    // ── Host callbacks ────────────────────────────────────────────────────
+
+    public void Activate()
+    {
+        Push(_stale || DateTime.UtcNow - _loadedAt > StaleAfter);
+        _timer ??= new Timer(_ =>
         {
-            "VIC", "NSW", "QLD", "SA", "WA", "TAS", "NT", "ACT"
-        };
+            try { Push(true); }
+            catch (Exception ex) { Console.WriteLine($"Refresh failed: {ex.Message}"); }
+        }, null, RefreshEvery, RefreshEvery);
+    }
 
-        // Most matches offered when a search is ambiguous.
-        private const int MaxMatches = 6;
+    public void Deactivate()
+    {
+        _timer?.Dispose();
+        _timer = null;
+    }
 
-        // Fetched weather is reused for this long, so switching tabs is instant.
-        private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(10);
-
-        // Background images are downscaled to this width before being sent as a data URI.
-        private const int BgMaxWidth = 800;
-
-        private static readonly HttpClient HttpClient = new HttpClient();
-        private static string WidgetTemplate { get; set; } = "";
-
-        // Cache of "condition key|theme" → base64 data URI so each image is processed
-        // only once per theme per process lifetime.
-        private static readonly Dictionary<string, string> BgCache = new();
-
-        // Fires every 30 min to match BOM's observation update cadence.
-        private Timer? _refreshTimer;
-
-        // True while the location input is shown in place of the weather.
-        private bool _editing;
-
-        // Problem with the last location search (not found, etc.), shown under the input.
-        private string _editError = "";
-
-        // Candidates offered when a location search matched more than one place.
-        private List<BomLocation> _matches = new();
-
-        private JsonObject? _cachedWeather;
-        private string _cachedGeohash = "";
-        private DateTime _cachedAt;
-
-        private sealed record BomLocation(string Name, string State, string Postcode, string Geohash)
+    // "Customize widget" in the ⋯ menu: the only way to change place on the small size.
+    public void Customize()
+    {
+        lock (_gate)
         {
-            public string DisplayName => string.IsNullOrEmpty(State) ? Name : $"{Name}, {State}";
-            public string Title => string.IsNullOrEmpty(Postcode) ? DisplayName : $"{DisplayName} {Postcode}";
+            _matches.Clear();
+            Edit("");
         }
+    }
 
-        static WeatherWidget()
-        {
-            HttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            HttpClient.DefaultRequestHeaders.Accept
-                .Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-        }
-
-        public WeatherWidget(string widgetId, string initialState) : base(widgetId, initialState) { }
-
-        // ── State helpers ─────────────────────────────────────────────────────
-
-        private string[] StateParts => state.Split(StateSep);
-
-        private string Suburb => StateParts[0];
-
-        private int Page
-        {
-            get  => StateParts.Length > 1 && int.TryParse(StateParts[1], out var p) ? p : 0;
-            set  => state = EncodeState(Suburb, value, Geohash);
-        }
-
-        private string Geohash => StateParts.Length > 2 ? StateParts[2] : "";
-
-        private void SetLocation(BomLocation location)
-            => state = EncodeState(location.DisplayName, 0, location.Geohash);
-
-        private static string EncodeState(string suburb, int page, string geohash)
-            => $"{suburb}{StateSep}{page}{StateSep}{geohash}";
-
-        // ── Template ─────────────────────────────────────────────────────────
-
-        private static string GetDefaultTemplate()
-        {
-            if (string.IsNullOrEmpty(WidgetTemplate))
-                WidgetTemplate = ReadPackageFileFromUri("ms-appx:///Templates/WeatherWidgetTemplate.json");
-            return WidgetTemplate;
-        }
-
-        public override string GetTemplateForWidget() => GetDefaultTemplate();
-
-        // ── Data ─────────────────────────────────────────────────────────────
-
-        public override string GetDataForWidget() => GetData(forceRefresh: false);
-
-        private string GetData(bool forceRefresh)
-        {
-            if (string.IsNullOrWhiteSpace(Suburb))
-                return BuildPayload(BuildEmptyData());
-
-            JsonObject weather;
-            try
-            {
-                // Saved before locations were stored by geohash: look it up once by name.
-                if (Geohash == "")
-                {
-                    var found = SearchLocationsAsync(Suburb).GetAwaiter().GetResult();
-                    if (found.Count == 0)
-                        return BuildPayload(BuildErrorData(Suburb, "Location not found. Tap 📍 Change to search again."));
-                    var page = Page;
-                    SetLocation(found[0]);
-                    Page = page;
-                }
-
-                var lightTheme = IsLightTheme();
-                var cacheValid = _cachedWeather != null
-                              && _cachedGeohash == Geohash
-                              && _cachedWeather["lightTheme"]?.GetValue<bool>() == lightTheme
-                              && DateTime.UtcNow - _cachedAt < CacheLifetime;
-
-                if (forceRefresh || !cacheValid)
-                {
-                    weather = FetchBomWeatherAsync(Geohash, Suburb, lightTheme).GetAwaiter().GetResult();
-                    _cachedWeather = weather;
-                    _cachedGeohash = Geohash;
-                    _cachedAt      = DateTime.UtcNow;
-                }
-                else
-                {
-                    weather = _cachedWeather!;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[WeatherWidget] Error: {ex.Message}");
-                weather = BuildErrorData(Suburb, "Could not fetch BOM data. Check your connection and try again.");
-            }
-
-            return BuildPayload(weather);
-        }
-
-        // Adds the per-view fields (page, edit mode) to a copy of the weather data.
-        private string BuildPayload(JsonObject weather)
-        {
-            var payload = (JsonObject)weather.DeepClone();
-            payload["page"]       = Page;
-            payload["editing"]    = _editing;
-            payload["editError"]  = _editError;
-            payload["hasMatches"] = _matches.Count > 0;
-            payload["matches"]    = JsonSerializer.SerializeToNode(
-                _matches.Select(m => new { title = m.Title, value = m.Geohash }));
-            return payload.ToJsonString();
-        }
-
-        // ── Actions ───────────────────────────────────────────────────────────
-
-        public override void OnActionInvoked(WidgetActionInvokedArgs args)
+    public void OnAction(WidgetActionInvokedArgs args)
+    {
+        lock (_gate)
         {
             switch (args.Verb)
             {
-                case "setLocation":
-                {
-                    var query = JsonNode.Parse(args.Data)?["suburb"]?.GetValue<string>()?.Trim() ?? "";
-                    if (query == "")
-                        break;
-
-                    List<BomLocation> found;
-                    try
-                    {
-                        found = SearchLocationsAsync(query).GetAwaiter().GetResult();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[WeatherWidget] Location search error: {ex.Message}");
-                        _editing   = true;
-                        _editError = "Could not reach the Bureau of Meteorology. Check your connection and try again.";
-                        PushUpdate();
-                        break;
-                    }
-
-                    if (found.Count == 1)
-                    {
-                        UseLocation(found[0]);
-                    }
-                    else
-                    {
-                        _editing   = true;
-                        _matches   = found;
-                        _editError = found.Count == 0
-                            ? $"No location matches \"{query}\". Try a suburb name or postcode."
-                            : "";
-                        PushUpdate();
-                    }
+                case "setLocation": Search(Input(args, "suburb")); break;
+                case "pickLocation": Use(_matches.FirstOrDefault(m => m.Geohash == Input(args, "pick"))); break;
+                case "useMyLocation": UseMyLocation(); break;
+                case "editLocation": Edit(""); break;
+                case "backToSearch": _matches.Clear(); Push(); break;
+                case "cancelEdit": (_editing, _editError) = (false, ""); _matches.Clear(); Push(); break;
+                case "showNow": case "showDaily": case "showHourly":
+                    _page = args.Verb switch { "showDaily" => 1, "showHourly" => 2, _ => 0 };
+                    Push();
                     break;
-                }
-
-                case "pickLocation":
-                {
-                    var geohash = JsonNode.Parse(args.Data)?["pick"]?.GetValue<string>() ?? "";
-                    var picked  = _matches.FirstOrDefault(m => m.Geohash == geohash);
-                    if (picked != null)
-                        UseLocation(picked);
-                    break;
-                }
-
-                case "backToSearch":
-                    _matches.Clear();
-                    PushUpdate();
-                    break;
-
-                case "editLocation":
-                    _editing = true;
-                    PushUpdate();
-                    break;
-
-                case "cancelEdit":
-                    _editing   = false;
-                    _editError = "";
-                    _matches.Clear();
-                    PushUpdate();
-                    break;
-
-                case "showNow":    Page = 0; PushUpdate(); break;
-                case "showDaily":  Page = 1; PushUpdate(); break;
-                case "showHourly": Page = 2; PushUpdate(); break;
             }
         }
+    }
 
-        // "Customize widget" in the widget's ⋯ menu — the only way to change
-        // location on the small size, which has no room for a Change link.
-        public override void OnCustomizationRequested()
+    private static string Input(WidgetActionInvokedArgs args, string name)
+        => string.IsNullOrEmpty(args.Data) ? "" : ((string?)JsonNode.Parse(args.Data)?[name])?.Trim() ?? "";
+
+    // ── Location ──────────────────────────────────────────────────────────
+
+    private void Edit(string error)
+    {
+        (_editing, _editError) = (true, error);
+        Push();
+    }
+
+    private void Use(Place? place)
+    {
+        if (place == null) return;
+        (_suburb, _geohash, _page) = (place.Display, place.Geohash, 0);
+        (_weather, _editing, _editError) = (null, false, "");
+        _matches.Clear();
+        Push(true);
+    }
+
+    private void Search(string query)
+    {
+        if (query == "") return;
+        List<Place> found;
+        try { found = SearchAsync(query).GetAwaiter().GetResult(); }
+        catch { Edit("Could not reach the Bureau of Meteorology. Check your connection and try again."); return; }
+
+        if (found.Count == 1)
         {
-            _editing   = true;
-            _editError = "";
-            _matches.Clear();
-            PushUpdate();
+            Use(found[0]);
+            return;
+        }
+        _matches = found;
+        Edit(found.Count == 0 ? $"No location matches \"{query}\". Try a suburb name or postcode." : "");
+    }
+
+    private void UseMyLocation()
+    {
+        try { Use(LocateAsync().GetAwaiter().GetResult()); }
+        catch { Edit("Couldn't find you. Check Windows location settings, or search for a suburb."); }
+    }
+
+    // Turns free text such as "Burwood", "Burwood NSW", "Scoresby, VIC" or "2134" into BOM
+    // locations. BOM's search only understands a bare name or a postcode, so a trailing
+    // state or postcode is split off and used as a filter. Exact name matches win
+    // ("Burwood" -> Burwood VIC and Burwood NSW, not Burwood East).
+    private static async Task<List<Place>> SearchAsync(string query)
+    {
+        var words = query.Replace(',', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        string? state = null, postcode = null;
+        for (; words.Count > 0; words.RemoveAt(words.Count - 1))
+        {
+            var w = words[^1];
+            if (state == null && States.Contains(w, StringComparer.OrdinalIgnoreCase)) state = w.ToUpperInvariant();
+            else if (postcode == null && w.Length == 4 && w.All(char.IsDigit)) postcode = w;
+            else break;
         }
 
-        private void UseLocation(BomLocation location)
+        var name = string.Join(' ', words);
+        if (name == "" && postcode == null) return [];
+
+        var found = ((await Get($"/locations?search={Uri.EscapeDataString(name == "" ? postcode! : name)}"))?["data"]?.AsArray() ?? [])
+            .Select(l => new Place((string?)l?["name"] ?? "", (string?)l?["state"] ?? "", (string?)l?["postcode"] ?? "",
+                ((string?)l?["geohash"] ?? "")[..Math.Min(6, ((string?)l?["geohash"] ?? "").Length)]))
+            .Where(p => p.Geohash != ""
+                     && (state == null || p.State.Equals(state, StringComparison.OrdinalIgnoreCase))
+                     && (postcode == null || p.Postcode == postcode))
+            .ToList();
+
+        var exact = found.Where(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+        return (exact.Count > 0 ? exact : found).Take(MaxMatches).ToList();
+    }
+
+    private static async Task<Place> LocateAsync()
+    {
+        if (await Geolocator.RequestAccessAsync() != GeolocationAccessStatus.Allowed)
+            throw new UnauthorizedAccessException();
+        var fix = await new Geolocator { DesiredAccuracyInMeters = 5000 }
+            .GetGeopositionAsync(TimeSpan.FromHours(1), TimeSpan.FromSeconds(10));
+        var hash = Geohash(fix.Coordinate.Point.Position.Latitude, fix.Coordinate.Point.Position.Longitude);
+
+        // BOM answers 404 outside Australia, which lands in the caller's catch.
+        var place = (await Get($"/locations/{hash}"))?["data"];
+        return new Place((string)place!["name"]!, (string?)place["state"] ?? "", "", hash);
+    }
+
+    private static string Geohash(double lat, double lon)
+    {
+        double[] latRange = [-90, 90], lonRange = [-180, 180];
+        var hash = "";
+        for (int bits = 0, ch = 0; hash.Length < 6; bits++)
         {
-            SetLocation(location);
-            _editing   = false;
-            _editError = "";
-            _matches.Clear();
-            Console.WriteLine($"[WeatherWidget] Location set to: {location.Title} ({location.Geohash})");
-            PushUpdate(forceRefresh: true);
+            var (range, value) = bits % 2 == 0 ? (lonRange, lon) : (latRange, lat);
+            var mid = (range[0] + range[1]) / 2;
+            ch = ch * 2 + (value >= mid ? 1 : 0);
+            range[value >= mid ? 0 : 1] = mid;
+            if (bits % 5 == 4) { hash += "0123456789bcdefghjkmnpqrstuvwxyz"[ch & 31]; ch = 0; }
         }
+        return hash;
+    }
 
-        public override void Activate(WidgetContext widgetContext)
+    // ── Pushing to the host ───────────────────────────────────────────────
+
+    public void Push(bool refresh = false)
+    {
+        lock (_gate)
         {
-            isActivated = true;
-            if (!string.IsNullOrWhiteSpace(Suburb))
-                PushUpdate();
-
-            // Refresh every 30 minutes — BOM publishes new observations on the half-hour.
-            _refreshTimer?.Dispose();
-            _refreshTimer = new Timer(
-                _ => { if (isActivated) PushUpdate(forceRefresh: true); },
-                null,
-                TimeSpan.FromMinutes(30),
-                TimeSpan.FromMinutes(30));
-        }
-
-        public override void Deactivate()
-        {
-            isActivated = false;
-            _refreshTimer?.Dispose();
-            _refreshTimer = null;
-        }
-
-        // ── Push helper ───────────────────────────────────────────────────────
-
-        private void PushUpdate(bool forceRefresh = false)
-        {
-            var options = new WidgetUpdateRequestOptions(Id)
+            Load(refresh);
+            WidgetManager.GetDefault().UpdateWidget(new WidgetUpdateRequestOptions(_id)
             {
-                Template    = GetTemplateForWidget(),
-                Data        = GetData(forceRefresh),
+                Template = Template,
+                Data = Payload(),
                 CustomState = State
-            };
-            WidgetManager.GetDefault().UpdateWidget(options);
+            });
         }
+    }
 
-        // ── BOM fetch ─────────────────────────────────────────────────────────
-
-        // Turns free text such as "Burwood", "Burwood NSW", "Scoresby, VIC" or "2134"
-        // into matching BOM locations. BOM's search only understands a bare name or a
-        // postcode, so a trailing state or postcode is split off and used as a filter.
-        // When several places match, exact name matches are preferred
-        // ("Burwood" → Burwood VIC and Burwood NSW, not Burwood East).
-        private static async Task<List<BomLocation>> SearchLocationsAsync(string query)
+    // Tab taps reuse what is already loaded; only the timer, Activate and a new place fetch.
+    private void Load(bool refresh)
+    {
+        if (_geohash == "" || (!refresh && _weather != null)) return;
+        try
         {
-            var tokens = query.Replace(",", " ")
-                              .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                              .ToList();
-
-            string? stateFilter = null, postcodeFilter = null;
-            while (tokens.Count > 0)
-            {
-                var last = tokens[^1];
-                if (stateFilter == null && AuStates.Contains(last))
-                    stateFilter = last.ToUpperInvariant();
-                else if (postcodeFilter == null && last.Length == 4 && last.All(char.IsDigit))
-                    postcodeFilter = last;
-                else
-                    break;
-                tokens.RemoveAt(tokens.Count - 1);
-            }
-
-            var name   = string.Join(' ', tokens);
-            var search = name != "" ? name : postcodeFilter;
-            if (string.IsNullOrEmpty(search))
-                return new List<BomLocation>();
-
-            var json = JsonNode.Parse(await HttpClient.GetStringAsync(
-                $"{BomApiBase}/locations?search={Uri.EscapeDataString(search)}"));
-
-            var results = (json?["data"]?.AsArray() ?? new JsonArray())
-                .Select(l =>
-                {
-                    var hash = l?["geohash"]?.GetValue<string>() ?? "";
-                    return new BomLocation(
-                        l?["name"]?.GetValue<string>() ?? "",
-                        l?["state"]?.GetValue<string>() ?? "",
-                        l?["postcode"]?.GetValue<string>() ?? "",
-                        hash.Length > 6 ? hash[..6] : hash);
-                })
-                .Where(l => l.Geohash != "")
-                .Where(l => stateFilter == null || string.Equals(l.State, stateFilter, StringComparison.OrdinalIgnoreCase))
-                .Where(l => postcodeFilter == null || l.Postcode == postcodeFilter)
-                .ToList();
-
-            var exact = results.Where(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (exact.Count > 0)
-                results = exact;
-
-            return results.Take(MaxMatches).ToList();
+            var fresh = Fetch(_geohash, _suburb).GetAwaiter().GetResult();
+            WarnAboutNew(_weather, fresh);
+            (_weather, _loadedAt, _stale) = (fresh, DateTime.UtcNow, false);
         }
-
-        private static async Task<JsonObject> FetchBomWeatherAsync(string geohash, string displaySuburb, bool lightTheme)
+        catch (Exception ex)
         {
-            // Current observations
-            var obsJson = JsonNode.Parse(
-                await HttpClient.GetStringAsync($"{BomApiBase}/locations/{geohash}/observations"));
-            var obs = obsJson?["data"];
-
-            var temp         = obs?["temp"]?.GetValue<double?>();
-            var feelsLike    = obs?["temp_feels_like"]?.GetValue<double?>();
-            var humidity     = obs?["humidity"]?.GetValue<double?>();
-            var rainSince9am = obs?["rain_since_9am"]?.GetValue<double?>();
-            var windKmh      = obs?["wind"]?["speed_kilometre"]?.GetValue<double?>();
-            var windDir      = obs?["wind"]?["direction"]?.GetValue<string>() ?? "";
-            var stationName  = obs?["station"]?["name"]?.GetValue<string>() ?? "";
-            var stationDistM = obs?["station"]?["distance"]?.GetValue<double?>();
-            var stationDistKm = stationDistM.HasValue ? $"{stationDistM.Value / 1000.0:0.#} km" : "";
-
-            // 3. Daily forecast (next 5 days)
-            var dailyForecasts  = new List<object>();
-            var hourlyForecasts = new List<object>();
-            var todayIconDesc   = "";   // captured from today's forecast for the current-conditions page
-            var todaySummary    = "";
-            var todayMax        = "";
-            var todayMin        = "";
-            var todayRain       = "";
-
-            try
-            {
-                var fcJson = JsonNode.Parse(
-                    await HttpClient.GetStringAsync($"{BomApiBase}/locations/{geohash}/forecasts/daily"));
-                var days = fcJson?["data"]?.AsArray();
-                if (days != null)
-                {
-                    var today = DateTime.Today;
-                    var first = true;
-                    foreach (var d in days.Take(5))
-                    {
-                        var dateStr  = d?["date"]?.GetValue<string>() ?? "";
-                        var dayLabel = "Today";
-                        if (DateTimeOffset.TryParse(dateStr, out var dt))
-                        {
-                            var local = dt.LocalDateTime.Date;
-                            dayLabel = local == today ? "Today" : local.ToString("ddd");
-                        }
-
-                        var iconDesc = d?["icon_descriptor"]?.GetValue<string>() ?? "";
-                        var desc     = (d?["short_text"]?.GetValue<string>() ?? "").TrimEnd('.');
-                        var maxTemp  = FormatTemp(d?["temp_max"]?.GetValue<double?>());
-                        var minTemp  = FormatTemp(d?["temp_min"]?.GetValue<double?>());
-                        var chance   = FormatChance(d?["rain"]?["chance"]?.GetValue<int?>());
-
-                        if (first)
-                        {
-                            todayIconDesc = iconDesc;
-                            todaySummary  = desc;
-                            todayMax      = maxTemp;
-                            todayMin      = minTemp;
-                            todayRain     = chance;
-                            first = false;
-                        }
-
-                        dailyForecasts.Add(new
-                        {
-                            dayLabel,
-                            iconUrl     = GetIconUrl(iconDesc),
-                            desc,
-                            maxTemp,
-                            minTemp,
-                            rainChance  = chance
-                        });
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[WeatherWidget] Daily forecast error: {ex.Message}");
-            }
-
-            // 4. Hourly forecast (next 8 hours)
-            try
-            {
-                var hrJson = JsonNode.Parse(
-                    await HttpClient.GetStringAsync($"{BomApiBase}/locations/{geohash}/forecasts/hourly"));
-                var hours = hrJson?["data"]?.AsArray();
-                if (hours != null)
-                {
-                    foreach (var h in hours.Take(8))
-                    {
-                        var timeStr  = h?["time"]?.GetValue<string>() ?? "";
-                        var timeLabel = DateTimeOffset.TryParse(timeStr, out var dt)
-                            ? dt.LocalDateTime.ToString("h tt").ToLowerInvariant().Replace(" ", "")   // e.g. "2pm"
-                            : "";
-
-                        var iconDesc = h?["icon_descriptor"]?.GetValue<string>() ?? "";
-                        var hWind    = h?["wind"]?["speed_kilometre"]?.GetValue<double?>();
-                        var hWindDir = h?["wind"]?["direction"]?.GetValue<string>() ?? "";
-
-                        hourlyForecasts.Add(new
-                        {
-                            timeLabel,
-                            iconUrl    = GetIconUrl(iconDesc),
-                            temp       = FormatTemp(h?["temp"]?.GetValue<double?>()),
-                            rainChance = FormatChance(h?["rain"]?["chance"]?.GetValue<int?>()),
-                            wind       = hWind.HasValue ? $"{(int)hWind.Value} km/h {hWindDir}".Trim() : ""
-                        });
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[WeatherWidget] Hourly forecast error: {ex.Message}");
-            }
-
-            // 5. Active weather warnings for this location
-            var warnings = new List<object>();
-            try
-            {
-                var warnJson = JsonNode.Parse(
-                    await HttpClient.GetStringAsync($"{BomApiBase}/locations/{geohash}/warnings"));
-                var warnData = warnJson?["data"]?.AsArray();
-                if (warnData != null)
-                {
-                    foreach (var w in warnData)
-                    {
-                        var title = w?["title"]?.GetValue<string>() ?? "";
-                        if (!string.IsNullOrWhiteSpace(title))
-                            warnings.Add(new { title });
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[WeatherWidget] Warnings fetch error: {ex.Message}");
-            }
-
-            // Resolve background: read from package, encode as data URI so the
-            // Widget Host (a different process) doesn't need to resolve ms-appx://.
-            var backgroundDataUri = await GetBackgroundDataUriAsync(todayIconDesc, lightTheme);
-
-            return JsonSerializer.SerializeToNode(new
-            {
-                hasData           = true,
-                lightTheme,
-                suburb            = displaySuburb,
-                iconUrl           = GetIconUrl(todayIconDesc),
-                backgroundImageUrl = backgroundDataUri,
-                headerIconUrl     = GetHeaderIconUrl(todayIconDesc),
-                // Current (page 0)
-                temperature       = FormatTemp(temp),
-                feelsLike         = FormatTemp(feelsLike),
-                summary           = todaySummary,
-                todayMax,
-                todayMin,
-                todayRain,
-                humidity          = humidity.HasValue ? $"{(int)humidity.Value}%" : "",
-                rain              = rainSince9am.HasValue ? $"{rainSince9am.Value:0.#} mm" : "",
-                wind              = windKmh.HasValue ? $"{(int)windKmh.Value} km/h {windDir}".Trim() : "",
-                stationName,
-                stationDist       = stationDistKm,
-                // Forecast pages
-                dailyForecasts,
-                hourlyForecasts,
-                hourlyStrip       = hourlyForecasts.Take(5),
-                warnings,
-                hasWarnings       = warnings.Count > 0,
-                error             = ""
-            })!.AsObject();
+            // Keep showing the last good data, marked as offline.
+            Console.WriteLine($"Fetch failed: {ex.Message}");
+            _stale = true;
         }
+    }
 
-        // ── Static helpers ────────────────────────────────────────────────────
+    private string Payload()
+    {
+        var p = _weather?.DeepClone().AsObject() ?? new JsonObject { ["suburb"] = _suburb, ["iconUrl"] = "" };
+        var light = Microsoft.Win32.Registry.GetValue(
+            @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1) is not 0;
 
-        private static string FormatTemp(double? val)
-            => val.HasValue ? $"{val.Value:0.#}" : "";
-
-        // Chances under 5% are noise; leave the column blank rather than showing "0%".
-        private static string FormatChance(int? chance)
-            => chance is int c && c >= 5 ? $"{c}%" : "";
-
-        private static JsonObject BuildEmptyData() => BuildErrorData("", "", hasData: false);
-
-        private static JsonObject BuildErrorData(string suburb, string error, bool hasData = true) =>
-            JsonSerializer.SerializeToNode(new
-            {
-                hasData,
-                suburb, iconUrl = "", backgroundImageUrl = "", headerIconUrl = "",
-                temperature = "", feelsLike = "", summary = "", todayMax = "", todayMin = "", todayRain = "",
-                humidity = "", rain = "", wind = "", stationName = "", stationDist = "",
-                dailyForecasts = Array.Empty<object>(),
-                hourlyForecasts = Array.Empty<object>(),
-                hourlyStrip = Array.Empty<object>(),
-                warnings = Array.Empty<object>(), hasWarnings = false,
-                error
-            })!.AsObject();
-
-        // ── Image URL helpers ─────────────────────────────────────────────────
-        //
-        // Icons  : OpenWeatherMap PNG icons — free, no API key, reliable HTTPS.
-        //          Used for Image elements in the card body and forecast rows.
-        //
-        // Backgrounds: Bundled package assets under Assets/WeatherBackgrounds/
-        //   (sunny, partly_cloudy, cloudy, rain, storm, snow, fog, night .jpg).
-        //   Each is downscaled and tinted to match the Windows theme before being
-        //   sent, so text stays readable on top of it. If a file is missing the
-        //   background simply won't render — the widget still works fine.
-        //
-        // Header icon: Also uses OWM PNG (HTTPS required; ms-appx:// is for
-        //   resources resolved inside the provider process, not the Widget Host).
-
-        private static string GetIconUrl(string descriptor)
+        p["hasData"] = _geohash != "";
+        p["error"] = _geohash != "" && _weather == null ? "Could not reach the Bureau of Meteorology. Check your connection and try again." : "";
+        p["page"] = _page;
+        p["editing"] = _editing;
+        p["editError"] = _editError;
+        p["hasMatches"] = _matches.Count > 0;
+        p["matches"] = JsonSerializer.SerializeToNode(_matches.Select(m => new { title = m.Title, value = m.Geohash }));
+        if (_weather != null)
         {
-            // Map BOM icon_descriptor → OpenWeatherMap icon code
-            var code = descriptor switch
-            {
-                "sunny"                         => "01d",
-                "clear"                         => "01n",
-                "mostly_sunny"                  => "02d",
-                "partly_cloudy"                 => "02d",
-                "mostly_cloudy"                 => "03d",
-                "cloudy" or "overcast"          => "04d",
-                "hazy" or "fog"                 => "50d",
-                "frost"                         => "13d",
-                "light_shower" or "light_rain"  => "10d",
-                "shower" or "rain"              => "10d",
-                "heavy_shower" or "heavy_rain"  => "09d",
-                "storm"                         => "11d",
-                "snow"                          => "13d",
-                "wind"                          => "50d",
-                _                               => "03d"
-            };
-            return $"https://openweathermap.org/img/wn/{code}@2x.png";
+            p["backgroundImageUrl"] = DataUri($"Backgrounds/{p["photo"]}_{(light ? "light" : "dark")}.jpg");
+            p["stationLine"] = _stale ? $"⚠ Offline · updated {p["observedAt"]}" : p["station"]!.ToString();
         }
+        return p.ToJsonString();
+    }
 
-        private static string GetBgKey(string descriptor) => descriptor switch
+    // ── BOM ───────────────────────────────────────────────────────────────
+
+    private static async Task<JsonNode?> Get(string path) => JsonNode.Parse(await Http.GetStringAsync(Api + path));
+
+    private static async Task<JsonNode?> TryGet(string path)
+    {
+        try { return await Get(path); }
+        catch (Exception ex) { Console.WriteLine($"{path}: {ex.Message}"); return null; }
+    }
+
+    // Observations are required; the rest degrade to blanks if BOM is slow or failing.
+    private static async Task<JsonObject> Fetch(string geohash, string suburb)
+    {
+        var obsTask = Get($"/locations/{geohash}/observations");
+        var infoTask = TryGet($"/locations/{geohash}");
+        var dailyTask = TryGet($"/locations/{geohash}/forecasts/daily");
+        var hourlyTask = TryGet($"/locations/{geohash}/forecasts/hourly");
+        var warningsTask = TryGet($"/locations/{geohash}/warnings");
+
+        var obsRoot = await obsTask;
+        var obs = obsRoot?["data"];
+        var info = (await infoTask)?["data"];
+        var days = (await dailyTask)?["data"]?.AsArray() ?? [];
+        var hours = (await hourlyTask)?["data"]?.AsArray() ?? [];
+        var warned = (await warningsTask)?["data"]?.AsArray() ?? [];
+
+        // Times and day names are the place's, not the PC's.
+        TimeZoneInfo zone;
+        try { zone = TimeZoneInfo.FindSystemTimeZoneById((string?)info?["timezone"] ?? ""); }
+        catch { zone = TimeZoneInfo.Local; }
+        string Clock(JsonNode? iso, string format = "h:mmtt") =>
+            DateTimeOffset.TryParse((string?)iso, out var t)
+                ? TimeZoneInfo.ConvertTime(t, zone).ToString(format, CultureInfo.InvariantCulture).ToLowerInvariant()
+                : "";
+        var today = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).Date;
+
+        var first = days.FirstOrDefault();
+        var night = (bool?)first?["now"]?["is_night"] == true;
+        var icon = IconKey((string?)first?["icon_descriptor"], night);
+        // BOM drops today's low once it has passed; its "now" block still carries tonight's.
+        var now = first?["now"];
+        var low = Num(first?["temp_min"]);
+        if (low == "")
+            low = (string?)now?["now_label"] == "Overnight min" ? Num(now?["temp_now"])
+                : (string?)now?["later_label"] == "Overnight min" ? Num(now?["temp_later"]) : "";
+
+        var amount = first?["rain"]?["amount"];
+        var rainText = Chance(first?["rain"]?["chance"]) is var chance and not ""
+            ? $"{chance} chance of rain" + ((double?)amount?["max"] > 0
+                ? $" · {((double?)amount?["min"] > 0 ? Num(amount?["min"]) + "–" : "up to ")}{Num(amount?["max"])} mm" : "")
+            : "";
+
+        var uv = first?["uv"];
+        var uvText = (int?)uv?["max_index"] is int index
+            && DateTimeOffset.TryParse((string?)uv?["end_time"], out var uvEnd) && uvEnd > DateTimeOffset.UtcNow
+            ? $"UV {index} {Cap((string?)uv?["category"])}" + (index >= 3 ? $" · protect {Clock(uv?["start_time"])}–{Clock(uv?["end_time"])}" : "")
+            : "";
+
+        var fire = (string?)first?["fire_danger_category"]?["text"] ?? "";
+        if (Regex.IsMatch(fire, "^(no rating)?$", RegexOptions.IgnoreCase)) fire = "";
+
+        // What matters most today, most important first. Medium shows one, Large two.
+        var notes = new List<object>();
+        if (fire != "")
+            notes.Add(new { text = $"Fire danger: {fire}", color = Regex.IsMatch(fire, "catastrophic|extreme|severe", RegexOptions.IgnoreCase) ? "attention"
+                                                                  : Regex.IsMatch(fire, "high", RegexOptions.IgnoreCase) ? "warning" : "good" });
+        if (uvText != "") notes.Add(new { text = uvText, color = "default" });
+        if (rainText != "") notes.Add(new { text = rainText, color = "default" });
+
+        var hourly = hours.Take(8).Select(hr => new
         {
-            "sunny" or "mostly_sunny"                              => "sunny",
-            "partly_cloudy" or "mostly_cloudy"                    => "partly_cloudy",
-            "cloudy" or "overcast" or "hazy"                      => "cloudy",
-            "light_shower" or "shower" or "rain"
-                or "light_rain" or "heavy_shower" or "heavy_rain" => "rain",
-            "storm"                                                => "storm",
-            "snow" or "frost"                                      => "snow",
-            "fog"                                                  => "fog",
-            "clear"                                                => "night",
-            _                                                      => "cloudy"
-        };
+            timeLabel = Clock(hr?["time"], "htt"),
+            iconUrl = Icon(IconKey((string?)hr?["icon_descriptor"], (bool?)hr?["is_night"] == true)),
+            temp = Num(hr?["temp"]),
+            rainChance = Chance(hr?["rain"]?["chance"]),
+            wind = Wind(hr?["wind"])
+        }).ToList();
 
-        // Reads the bundled background JPEG from the provider's own package,
-        // downscales it, and lays a gradient over it that matches the Windows
-        // theme: dark in dark mode, light in light mode. Text then uses the
-        // theme's normal colour (including the header, which the Widget Host
-        // draws itself and the card can't recolour) and stays readable however
-        // bright or busy the photo is.
-        // Results are cached — each image is only processed once per theme per run.
-        private static async Task<string> GetBackgroundDataUriAsync(string descriptor, bool lightTheme)
+        var warnings = warned
+            .Select(w => new { title = (string?)w?["title"] ?? "", major = (string?)w?["warning_group_type"] != "minor" })
+            .Where(w => w.title != "")
+            .OrderByDescending(w => w.major)
+            .Take(2)
+            .ToList();
+
+        var name = (string?)info?["name"] ?? suburb.Split(',')[0];
+        var distance = (double?)obs?["station"]?["distance"];
+
+        return JsonSerializer.SerializeToNode(new
         {
-            var key      = GetBgKey(descriptor);
-            var cacheKey = $"{key}|{(lightTheme ? "light" : "dark")}";
-
-            lock (BgCache)
-                if (BgCache.TryGetValue(cacheKey, out var cached))
-                    return cached;
-
-            var dataUri = "";
-            try
+            suburb,
+            iconUrl = Icon(icon),
+            photo = Photos.GetValueOrDefault(icon, "cloudy"),
+            temperature = Num(obs?["temp"]),
+            feelsLike = Num(obs?["temp_feels_like"]),
+            summary = ((string?)first?["short_text"] ?? "").TrimEnd('.'),
+            todayMax = Num(first?["temp_max"]),
+            todayMin = low,
+            todayRain = Chance(first?["rain"]?["chance"]),
+            notes,
+            humidity = (double?)obs?["humidity"] is double h ? $"{(int)h}%" : "",
+            rain = (double?)obs?["rain_since_9am"] is double r ? $"{r:0.#} mm" : "",
+            wind = Wind(obs?["wind"]),
+            station = (string?)obs?["station"]?["name"] + (distance is double m ? $" · {m / 1000:0.#} km" : ""),
+            observedAt = Clock(obsRoot?["metadata"]?["observation_time"]),
+            bomUrl = $"https://weather.bom.gov.au/location/{geohash}-{string.Join('-', name.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries))}",
+            dailyForecasts = days.Take(5).Select(d => new
             {
-                var filePath = Path.Combine(
-                    AppContext.BaseDirectory,
-                    "Assets", "WeatherBackgrounds", $"{key}.jpg");
+                dayLabel = DateTimeOffset.TryParse((string?)d?["date"], out var date) && TimeZoneInfo.ConvertTime(date, zone).Date != today
+                    ? TimeZoneInfo.ConvertTime(date, zone).ToString("ddd", CultureInfo.InvariantCulture) : "Today",
+                iconUrl = Icon(IconKey((string?)d?["icon_descriptor"], false)),
+                desc = ((string?)d?["short_text"] ?? "").TrimEnd('.'),
+                maxTemp = Num(d?["temp_max"]),
+                minTemp = Num(d?["temp_min"]),
+                rainChance = Chance(d?["rain"]?["chance"])
+            }),
+            hourlyForecasts = hourly,
+            hourlyStrip = hourly.Take(5),
+            warnings,
+            hasWarnings = warnings.Count > 0
+        })!.AsObject();
+    }
 
-                if (File.Exists(filePath))
-                {
-                    var bytes     = await File.ReadAllBytesAsync(filePath);
-                    var processed = ApplyScrim(bytes, lightTheme);
-                    dataUri = $"data:image/jpeg;base64,{Convert.ToBase64String(processed)}";
-                    Console.WriteLine($"[WeatherWidget] Background cached: {cacheKey} ({processed.Length / 1024} KB)");
-                }
-                else
-                {
-                    Console.WriteLine($"[WeatherWidget] Background not found: {filePath}");
-                }
-            }
-            catch (Exception ex)
+    private static string Num(JsonNode? n) => (double?)n is double v ? v.ToString("0.#", CultureInfo.InvariantCulture) : "";
+
+    // Chances under 5% are noise; leave them blank rather than showing "0%".
+    private static string Chance(JsonNode? n) => (int?)n is int c && c >= 5 ? $"{c}%" : "";
+
+    private static string Wind(JsonNode? w)
+        => (double?)w?["speed_kilometre"] is double kmh ? $"{(int)kmh} km/h {(string?)w?["direction"]}".Trim() : "";
+
+    private static string Cap(string? s)
+    {
+        s = (s ?? "").Replace("very", "very ");
+        return s == "" ? s : char.ToUpperInvariant(s[0]) + s[1..];
+    }
+
+    private static string IconKey(string? descriptor, bool night)
+    {
+        var key = Icons.GetValueOrDefault(descriptor ?? "", "cloudy");
+        return night ? key switch { "sunny" => "clear", "partly" => "partly_night", _ => key } : key;
+    }
+
+    private static string Icon(string key) => DataUri($"Icons/{key}.png");
+
+    // Images are sent inline: the Widgets host can't read this package's files.
+    private static string DataUri(string file)
+    {
+        lock (DataUris)
+        {
+            if (!DataUris.TryGetValue(file, out var uri))
             {
-                Console.WriteLine($"[WeatherWidget] Background load failed for '{cacheKey}': {ex.Message}");
+                try { uri = $"data:image/{(file.EndsWith(".png") ? "png" : "jpeg")};base64,{Convert.ToBase64String(File.ReadAllBytes(Path.Combine(AssetDir, file)))}"; }
+                catch (Exception ex) { Console.WriteLine($"Missing asset {file}: {ex.Message}"); uri = ""; }
+                DataUris[file] = uri;
             }
-
-            lock (BgCache)
-                BgCache[cacheKey] = dataUri;
-            return dataUri;
+            return uri;
         }
+    }
 
-        private static byte[] ApplyScrim(byte[] source, bool lightTheme)
-        {
-            using var ms  = new MemoryStream(source);
-            using var src = new Bitmap(ms);
-
-            var width  = Math.Min(src.Width, BgMaxWidth);
-            var height = Math.Max(1, src.Height * width / src.Width);
-
-            using var dst = new Bitmap(width, height);
-            using (var g = Graphics.FromImage(dst))
-            {
-                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                g.DrawImage(src, 0, 0, width, height);
-
-                // Dark: ~45% black at the top rising to ~65% at the bottom.
-                // Light: ~65% white rising to ~78%, since dark text needs a paler base.
-                var (tint, topAlpha, bottomAlpha) = lightTheme
-                    ? (Color.FromArgb(243, 243, 243), 165, 200)
-                    : (Color.Black, 115, 165);
-
-                using var scrim = new LinearGradientBrush(
-                    new Rectangle(0, 0, width, height),
-                    Color.FromArgb(topAlpha, tint),
-                    Color.FromArgb(bottomAlpha, tint),
-                    LinearGradientMode.Vertical);
-                g.FillRectangle(scrim, 0, 0, width, height);
-            }
-
-            var jpeg = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
-            using var encoderParams = new EncoderParameters(1);
-            encoderParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 82L);
-
-            using var outStream = new MemoryStream();
-            dst.Save(outStream, jpeg, encoderParams);
-            return outStream.ToArray();
-        }
-
-        // The Widgets board follows the Windows app theme (Settings > Personalisation > Colours).
-        private static bool IsLightTheme()
+    // Toast severe warnings that weren't in the previous fetch for this place.
+    private static void WarnAboutNew(JsonObject? previous, JsonObject fresh)
+    {
+        if (previous == null) return;
+        var known = previous["warnings"]!.AsArray().Select(w => (string?)w?["title"]).ToHashSet();
+        foreach (var w in fresh["warnings"]!.AsArray().Where(w => (bool?)w?["major"] == true && !known.Contains((string?)w?["title"])))
         {
             try
             {
-                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-                return key?.GetValue("AppsUseLightTheme") is int v ? v != 0 : true;
+                var xml = new XmlDocument();
+                xml.LoadXml($"<toast><visual><binding template='ToastGeneric'><text>Bureau of Meteorology warning</text><text>{SecurityElement.Escape((string?)w!["title"])}</text></binding></visual></toast>");
+                ToastNotificationManager.CreateToastNotifier().Show(new ToastNotification(xml));
             }
-            catch
-            {
-                return true;
-            }
+            catch (Exception ex) { Console.WriteLine($"Toast failed: {ex.Message}"); }
         }
-
-        // Used in the Adaptive Card 'header' property — must be an HTTPS URL
-        // because it is resolved by the Widget Host, not the provider process.
-        private static string GetHeaderIconUrl(string descriptor) => GetIconUrl(descriptor);
     }
 }

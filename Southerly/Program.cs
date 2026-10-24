@@ -1,60 +1,31 @@
-﻿// Copyright (C) Microsoft Corporation.
+// Copyright (C) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Microsoft.Windows.Widgets.Providers;
-using System;
 using System.Runtime.InteropServices;
 using WidgetHelper;
 
-namespace Southerly
+namespace Southerly;
+
+public static class Program
 {
-    /// <summary>
-    /// Main provider entrypoint.
-    /// </summary>
-    public static class Program
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBox(nint hWnd, string text, string caption, uint type);
+
+    [MTAThread]
+    private static void Main(string[] args)
     {
-        [DllImport("kernel32.dll")]
-        static extern IntPtr GetConsoleWindow();
-
-        [MTAThread]
-        static void Main(string[] args)
+        // Windows starts this exe with the flag to serve the widget; anyone opening it
+        // from the Start menu just gets told where the widget is.
+        if (args.Length == 0 || args[0] != "-RegisterProcessAsComServer")
         {
-            Console.WriteLine("Southerly widget provider starting...");
-            if (args.Length > 0 && args[0] == "-RegisterProcessAsComServer")
-            {
-                WinRT.ComWrappersSupport.InitializeComWrappers();
-                using (var manager = RegistrationManager<WidgetProvider>.RegisterProvider())
-                {
-                    Console.WriteLine("Widget Provider registered.");
-
-                    var existingWidgets = WidgetManager.GetDefault().GetWidgetIds();
-                    if (existingWidgets != null)
-                    {
-                        Console.WriteLine($"There are {existingWidgets.Length} Widgets currently outstanding:");
-                        foreach (var widgetId in existingWidgets)
-                        {
-                            Console.WriteLine($"  {widgetId}");
-                        }
-                    }
-                    if (GetConsoleWindow() != IntPtr.Zero)
-                    {
-                        Console.WriteLine("Press ENTER to exit.");
-                        Console.ReadLine();
-                    }
-                    else
-                    {
-                        // Wait until the manager has disposed of the last widget provider.
-                        using (var disposedEvent = manager.GetDisposedEvent())
-                        {
-                            disposedEvent.WaitOne();
-                        }
-                    }
-                }
-            }
-            else
-            {
-                Console.WriteLine("Not being launched to service Widget Provider... exiting.");
-            }
+            MessageBox(0, "Southerly is a widget. Open the Widgets board (Win + W), choose + and add Southerly Weather.",
+                "Southerly", 0x40);
+            return;
         }
+
+        WinRT.ComWrappersSupport.InitializeComWrappers();
+        using var manager = RegistrationManager<WidgetProvider>.RegisterProvider();
+        using var disposed = manager.GetDisposedEvent();
+        disposed.WaitOne();   // until the host has released the last widget
     }
 }
