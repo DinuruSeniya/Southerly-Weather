@@ -24,6 +24,12 @@
     <Content Include="Templates\**\*.json" />
   </ItemGroup>
 
+  <!-- Copy package content into the build output so the output folder can be
+       registered directly with Add-AppxPackage -Register (no VS deploy needed). -->
+  <ItemGroup>
+    <Content Update="Assets\**\*;ProviderAssets\**\*;Templates\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240227000" />

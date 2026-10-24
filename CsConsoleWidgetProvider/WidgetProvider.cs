@@ -150,6 +150,8 @@ public sealed class WidgetProvider : IWidgetProvider
         {
             throw new Exception($"Activate called for unknown ");
         }
+
+        WidgetInstances[widgetContext.Id].Activate(widgetContext);
     }
 
     // Handle the Deactivate call. This function is called when widgets host stops listening
