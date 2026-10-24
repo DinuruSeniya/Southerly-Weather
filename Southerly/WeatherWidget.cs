@@ -304,6 +304,7 @@ internal sealed class WeatherWidget
         var dailyTask = TryGet($"/locations/{cell}/forecasts/daily");
         var hourlyTask = TryGet($"/locations/{cell}/forecasts/hourly");
         var warningsTask = TryGet($"/locations/{cell}/warnings");
+        var stateWarningsTask = TryGet("/warnings");
 
         var obsRoot = await obsTask;
         var obs = obsRoot?["data"];
@@ -370,19 +371,35 @@ internal sealed class WeatherWidget
         var slug = Regex.Replace(Regex.Replace(parts[0].ToLowerInvariant(), "['’]", ""), "[^a-z0-9]+", "-").Trim('-');   // O'Connor -> oconnor
         var bomUrl = parts.Length == 2 ? $"https://www.bom.gov.au/places/{parts[1].ToLowerInvariant()}/{slug}/forecast/" : "https://www.bom.gov.au/";
 
-        // Severe first. Each links to its own page: type severe_thunderstorm_warning + id VIC_RC022_IDV21035
-        // -> bom.gov.au/warning/severe-thunderstorm-warning/IDV21035. The label drops "Warning"; the ⚠ says it.
-        var warnings = warned
-            .Select(w => new
+        // The place's own warnings leave out ones BOM's page shows, such as severe thunderstorm warnings
+        // (drawn as map areas), so the state's weather warnings are added. Flood, marine and surf warnings
+        // are for particular rivers and coasts and would mostly be noise, so only the place's own count.
+        // Severe first, then the place's own. Each links to its own page: type severe_thunderstorm_warning
+        // + id VIC_RC022_IDV21035 -> bom.gov.au/warning/severe-thunderstorm-warning/IDV21035.
+        var state = parts.Length == 2 ? parts[1] : (string?)info?["state"] ?? "";
+        var statewide = ((await stateWarningsTask)?["data"]?.AsArray() ?? [])
+            .Where(w => state.Equals((string?)w?["state"], StringComparison.OrdinalIgnoreCase)
+                     && !Regex.IsMatch((string?)w?["type"] ?? "", "flood|marine|surf|coastal"));
+        var warnings = warned.Select(w => (w, local: true)).Concat(statewide.Select(w => (w, local: false)))
+            .Where(x => (string?)x.w?["phase"] != "cancelled"
+                     && !(DateTimeOffset.TryParse((string?)x.w?["expiry_time"], out var end) && end < DateTimeOffset.UtcNow))
+            .DistinctBy(x => ((string?)x.w?["id"] ?? "").Split('_')[^1])
+            .OrderByDescending(x => (string?)x.w?["warning_group_type"] != "minor").ThenByDescending(x => x.local)
+            .Select(x =>
             {
-                title = (string?)w?["title"] ?? "",
-                label = Regex.Replace((string?)w?["short_title"] ?? (string?)w?["title"] ?? "", " Warning$", ""),
-                major = (string?)w?["warning_group_type"] != "minor",
-                url = (string?)w?["type"] is string type && (string?)w?["id"] is string id
-                    ? $"https://www.bom.gov.au/warning/{type.Replace('_', '-')}/{id.Split('_')[^1]}" : bomUrl
+                // The place feed titles "Sheep Graziers Warning for Central forecast district"; the state feed
+                // gives just the area. The label drops "Warning" (the ⚠ says it) and adds the area.
+                var (w, kind, title) = (x.w, (string?)x.w?["short_title"] ?? "Warning", (string?)x.w?["title"] ?? "");
+                var area = title.StartsWith(kind) ? Regex.Replace(title[kind.Length..], "^ for ", "") : title;
+                return new
+                {
+                    title = area == "" ? kind : $"{kind} for {area}",
+                    label = Regex.Replace(kind, " Warning$", "") + (area == "" ? "" : $" · {area}"),
+                    major = (string?)w?["warning_group_type"] != "minor",
+                    url = (string?)w?["type"] is string type && (string?)w?["id"] is string id
+                        ? $"https://www.bom.gov.au/warning/{type.Replace('_', '-')}/{id.Split('_')[^1]}" : bomUrl
+                };
             })
-            .Where(w => w.title != "")
-            .OrderByDescending(w => w.major)
             .ToList();
         var distance = (double?)obs?["station"]?["distance"];
 

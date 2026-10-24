@@ -107,7 +107,15 @@
                 { "type": "TextBlock", "text": "${todayRain} chance of rain", "color": "accent", "size": "small", "horizontalAlignment": "right", "spacing": "none", "wrap": false, "$when": "${todayRain != ''}" }
               ] }
           ]
-        }
+        },
+        { "type": "ColumnSet", "$data": "${warnings}", "$when": "${$index == 0}", "spacing": "small",
+          "$comment": "The most important warning, opening its page, and how many more there are",
+          "selectAction": { "type": "Action.OpenUrl", "url": "${url}", "tooltip": "${title}" },
+          "columns": [
+            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "⚠ ${label}", "color": "${major ? 'attention' : 'warning'}", "weight": "bolder", "size": "small", "wrap": false }] },
+            { "type": "Column", "width": "auto", "$when": "${count($root.warnings) > 1}",
+              "items": [{ "type": "TextBlock", "text": "+${count($root.warnings) - 1}", "color": "${major ? 'attention' : 'warning'}", "size": "small", "wrap": false }] }
+          ] }
       ]
     },
 
@@ -223,8 +231,8 @@
 
     {
       "type": "Carousel",
-      "$comment": "Warnings on every size (Medium: Now page), one per page to swipe through; each opens its own page on bom.gov.au",
-      "$when": "${hasData && !editing && error == '' && hasWarnings && ($host.widgetSize != 'medium' || page == 0)}",
+      "$comment": "Medium Now page and Large: warnings, one per page to swipe through; each opens its own page on bom.gov.au",
+      "$when": "${hasData && !editing && error == '' && hasWarnings && (($host.widgetSize == 'medium' && page == 0) || $host.widgetSize == 'large')}",
       "spacing": "small",
       "pages": [
         { "type": "CarouselPage", "$data": "${warnings}", "style": "${major ? 'attention' : 'warning'}",
