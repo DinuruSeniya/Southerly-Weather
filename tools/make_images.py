@@ -1,4 +1,4 @@
-"""Generate Southerly's app logos and widget picker images.
+"""Generate Southerly's logos, widget picker images, weather icons and backgrounds.
 
 Usage (from the repo root):  python tools/make_images.py
 Requires Pillow and the Segoe UI Variable font that ships with Windows 11.
@@ -12,6 +12,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Southerly")
 ASSETS = os.path.join(ROOT, "Assets")
 PROVIDER = os.path.join(ROOT, "ProviderAssets")
+PHOTOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backgrounds")
 FONT = "C:/Windows/Fonts/SegUIVar.ttf"
 
 SUN_TOP = (255, 196, 61)
@@ -137,47 +138,187 @@ def with_wordmark(mark, size, mark_frac, text_colour):
     return out.resize(size, Image.LANCZOS)
 
 
-# ---------------------------------------------------------------- picker preview
+# ---------------------------------------------------------------- weather icons
 
-def partly_cloudy_icon(px):
-    """Sun peeking behind a cloud, roughly like the forecast icons the widget uses."""
-    k = 4
-    n = px * k
+ICON = 96          # px; the widget shows them at 24-64px
+K = 4              # supersampling
+
+
+def grad_fill(img, mask, top, bottom):
+    """Fill `mask` with a vertical gradient spanning the mask's own bounds."""
+    box = mask.getbbox()
+    if box:
+        grad = vgradient((box[2] - box[0], box[3] - box[1]), top, bottom).convert("RGBA")
+        img.paste(grad, box[:2], mask.crop(box))
+
+
+def shape(n, fn):
+    m = Image.new("L", (n, n), 0)
+    fn(ImageDraw.Draw(m))
+    return m
+
+
+def dot(d, x, y, r):
+    d.ellipse((x - r, y - r, x + r, y + r), fill=255)
+
+
+def sun(img, u, cx, cy, r):
+    def draw(d):
+        dot(d, cx * u, cy * u, r * u)
+        for i in range(8):
+            a = math.radians(i * 45)
+            x1, y1 = (cx + math.cos(a) * r * 1.4) * u, (cy + math.sin(a) * r * 1.4) * u
+            x2, y2 = (cx + math.cos(a) * r * 1.75) * u, (cy + math.sin(a) * r * 1.75) * u
+            d.line((x1, y1, x2, y2), fill=255, width=round(r * .3 * u))
+            dot(d, x1, y1, r * .15 * u)
+            dot(d, x2, y2, r * .15 * u)
+    grad_fill(img, shape(img.width, draw), SUN_TOP, SUN_BOTTOM)
+
+
+def moon(img, u, cx, cy, r):
+    # a disc with a bite knocked out of its top right
+    m = shape(img.width, lambda d: dot(d, cx * u, cy * u, r * u))
+    bite = shape(img.width, lambda d: dot(d, (cx + r * .45) * u, (cy - r * .5) * u, r * .85 * u))
+    grad_fill(img, ImageChops.subtract(m, bite), (255, 238, 172), (238, 188, 86))
+
+
+def cloud(img, u, x, y, w, top=(255, 255, 255), bottom=(196, 208, 224)):
+    """A cloud with its top-left at (x, y) and width w, soft shadow underneath."""
+    def draw(d):
+        d.rounded_rectangle((x * u, (y + .30 * w) * u, (x + w) * u, (y + .60 * w) * u), radius=.15 * w * u, fill=255)
+        for cx, cy, r in ((.30, .32, .20), (.55, .24, .26), (.78, .38, .18)):
+            dot(d, (x + cx * w) * u, (y + cy * w) * u, r * w * u)
+    m = shape(img.width, draw)
+    img.paste(Image.new("RGBA", img.size, (0, 0, 0, 70)), (0, round(1.2 * u)), m.filter(ImageFilter.GaussianBlur(1.5 * u)))
+    grad_fill(img, m, top, bottom)
+
+
+def strokes(img, u, lines, colour, width):
+    """Rounded line segments [(x1, y1, x2, y2), ...] in 100-unit space."""
+    def draw(d):
+        for x1, y1, x2, y2 in lines:
+            d.line((x1 * u, y1 * u, x2 * u, y2 * u), fill=255, width=round(width * u))
+            dot(d, x1 * u, y1 * u, width / 2 * u)
+            dot(d, x2 * u, y2 * u, width / 2 * u)
+    img.paste(Image.new("RGBA", img.size, colour + (255,)), (0, 0), shape(img.width, draw))
+
+
+RAIN = (64, 152, 238)
+GREY = ((206, 216, 230), (140, 154, 174))
+DARK = ((168, 180, 198), (96, 110, 132))
+
+
+def drops(img, u, xs, y, length):
+    strokes(img, u, [(x, y, x - length * .3, y + length) for x in xs], RAIN, 5.5)
+
+
+def flake(img, u, cx, cy, r, colour=(120, 190, 242), width=4):
+    arms = [(cx + math.cos(math.radians(a)) * r, cy + math.sin(math.radians(a)) * r,
+             cx - math.cos(math.radians(a)) * r, cy - math.sin(math.radians(a)) * r) for a in (0, 60, 120)]
+    strokes(img, u, arms, colour, width)
+
+
+def draw_icon(name):
+    n = ICON * K
+    u = n / 100
     img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-    sun = Image.new("L", (n, n), 0)
-    ImageDraw.Draw(sun).ellipse((n * .12, n * .10, n * .62, n * .60), fill=255)
-    img.paste(vgradient((n, n), SUN_TOP, SUN_BOTTOM).convert("RGBA"), (0, 0), sun)
-    cloud = Image.new("L", (n, n), 0)
-    d = ImageDraw.Draw(cloud)
-    d.ellipse((n * .30, n * .38, n * .70, n * .78), fill=255)
-    d.ellipse((n * .55, n * .48, n * .90, n * .83), fill=255)
-    d.ellipse((n * .18, n * .55, n * .48, n * .85), fill=255)
-    d.rounded_rectangle((n * .18, n * .62, n * .90, n * .85), radius=n * .11, fill=255)
-    shadow = cloud.filter(ImageFilter.GaussianBlur(n * .02))
-    img.paste(Image.new("RGBA", (n, n), (0, 0, 0, 40)), (0, round(n * .015)), shadow)
-    img.paste(vgradient((n, n), (255, 255, 255), (222, 230, 240)).convert("RGBA"), (0, 0), cloud)
-    return img.resize((px, px), Image.LANCZOS)
+    if name == "sunny":
+        sun(img, u, 50, 50, 20)
+    elif name == "clear":
+        moon(img, u, 48, 52, 30)
+        for x, y, r in ((74, 28, 3.5), (82, 50, 2.5), (68, 74, 2.5)):
+            grad_fill(img, shape(n, lambda d: dot(d, x * u, y * u, r * u)), (255, 238, 172), (238, 188, 86))
+    elif name == "partly":
+        sun(img, u, 37, 36, 16)
+        cloud(img, u, 22, 42, 68)
+    elif name == "partly_night":
+        moon(img, u, 38, 38, 22)
+        cloud(img, u, 22, 42, 68)
+    elif name == "cloudy":
+        cloud(img, u, 36, 20, 56, *GREY)
+        cloud(img, u, 8, 36, 72)
+    elif name in ("haze", "dust"):
+        tint = (206, 160, 96) if name == "dust" else (150, 170, 192)
+        sun(img, u, 50, 38, 17)
+        strokes(img, u, [(18, 68, 82, 68), (28, 79, 72, 79), (38, 90, 62, 90)], tint, 5.5)
+    elif name == "fog":
+        cloud(img, u, 14, 12, 72, *GREY)
+        strokes(img, u, [(16, 66, 84, 66), (26, 77, 74, 77), (36, 88, 64, 88)], (140, 170, 205), 5.5)
+    elif name == "shower":
+        cloud(img, u, 14, 14, 72, *GREY)
+        drops(img, u, (36, 52, 68), 66, 14)
+    elif name == "rain":
+        cloud(img, u, 14, 10, 72, *DARK)
+        drops(img, u, (30, 46, 62, 78), 62, 24)
+    elif name == "storm":
+        cloud(img, u, 14, 8, 72, *DARK)
+        drops(img, u, (28, 74), 62, 20)
+        bolt = [(54, 52), (40, 74), (50, 74), (44, 94), (66, 66), (55, 66), (62, 52)]
+        grad_fill(img, shape(n, lambda d: d.polygon([(x * u, y * u) for x, y in bolt], fill=255)), (255, 224, 80), (255, 166, 30))
+    elif name == "snow":
+        cloud(img, u, 14, 12, 72, *GREY)
+        for x in (30, 50, 70):
+            flake(img, u, x, 76, 8, (150, 205, 250), 3.5)
+    elif name == "frost":
+        flake(img, u, 50, 50, 34, width=7)
+    elif name == "wind":
+        wind = wind_mask(74).filter(ImageFilter.GaussianBlur(2)).resize((n, n), Image.LANCZOS)
+        img.paste(Image.new("RGBA", (n, n), (48, 140, 224, 255)), (0, 0), wind)
+    return img.resize((ICON, ICON), Image.LANCZOS)
 
+
+ICON_NAMES = "sunny clear partly partly_night cloudy haze dust fog shower rain storm snow frost wind".split()
+
+
+def icons():
+    out = os.path.join(ASSETS, "Icons")
+    os.makedirs(out, exist_ok=True)
+    for name in ICON_NAMES:
+        # a palette keeps each icon to a few KB, as they are sent inline many times
+        draw_icon(name).quantize(256, method=Image.FASTOCTREE).save(os.path.join(out, name + ".png"), optimize=True)
+
+
+# ---------------------------------------------------------------- backgrounds
+
+BG_W, BG_H = 450, 696   # 1.5x the largest widget (300x464), cropped to its aspect ratio
+BG_NAMES = "sunny partly_cloudy cloudy rain storm snow fog night".split()
+
+
+def background(name, dark):
+    """The photo cropped to widget proportions, with a vertical scrim matching the Windows theme."""
+    photo = Image.open(os.path.join(PHOTOS, name + ".jpg")).convert("RGB")
+    scale = max(BG_W / photo.width, BG_H / photo.height)
+    photo = photo.resize((round(photo.width * scale), round(photo.height * scale)), Image.LANCZOS)
+    left, top = (photo.width - BG_W) // 2, (photo.height - BG_H) // 2
+    bg = photo.crop((left, top, left + BG_W, top + BG_H)).convert("RGBA")
+    # dark: ~45% black rising to ~65%; light: ~65% white rising to ~78%, as dark text needs a paler base
+    tint, a0, a1 = ((0, 0, 0), 115, 165) if dark else ((243, 243, 243), 165, 200)
+    scrim = Image.new("RGBA", (BG_W, BG_H))
+    for y in range(BG_H):
+        ImageDraw.Draw(scrim).line((0, y, BG_W, y), fill=tint + (round(a0 + (a1 - a0) * y / (BG_H - 1)),))
+    bg.alpha_composite(scrim)
+    return bg.convert("RGB")
+
+
+def backgrounds():
+    out = os.path.join(ASSETS, "Backgrounds")
+    os.makedirs(out, exist_ok=True)
+    for name in BG_NAMES:
+        for dark in (False, True):
+            background(name, dark).save(os.path.join(out, f"{name}_{'dark' if dark else 'light'}.jpg"),
+                                        quality=72, optimize=True, progressive=True)
+
+
+# ---------------------------------------------------------------- picker preview
 
 def preview(dark):
     """Mock of the medium widget's Now page, 300x304 as the picker expects."""
     k = 3
     W, H = 300 * k, 304 * k
-
-    photo = Image.open(os.path.join(ASSETS, "WeatherBackgrounds", "partly_cloudy.jpg")).convert("RGB")
-    pw, ph = photo.size
-    scale = max(W / pw, H / ph)
-    photo = photo.resize((round(pw * scale), round(ph * scale)), Image.LANCZOS)
-    left, top = (photo.width - W) // 2, (photo.height - H) // 2
-    bg = photo.crop((left, top, left + W, top + H)).convert("RGBA")
-
-    # Same theme-matched overlay as WeatherWidget.ApplyScrim
-    tint, a0, a1 = ((0, 0, 0), 115, 165) if dark else ((243, 243, 243), 165, 200)
-    scrim = Image.new("RGBA", (W, H))
-    for y in range(H):
-        a = round(a0 + (a1 - a0) * y / (H - 1))
-        ImageDraw.Draw(scrim).line((0, y, W, y), fill=tint + (a,))
-    bg.alpha_composite(scrim)
+    bg = background("partly_cloudy", dark).resize((W, round(BG_H * W / BG_W)), Image.LANCZOS)
+    top = (bg.height - H) // 2
+    bg = bg.crop((0, top, W, top + H)).convert("RGBA")
+    icon = Image.open(os.path.join(ASSETS, "Icons", "partly.png")).convert("RGBA")
 
     fg = (255, 255, 255) if dark else (26, 26, 26)
     subtle = (200, 200, 200) if dark else (92, 92, 92)
@@ -189,7 +330,7 @@ def preview(dark):
 
     # host-drawn header: small icon + location
     y = 12 * k
-    bg.alpha_composite(partly_cloudy_icon(18 * k), (pad, y))
+    bg.alpha_composite(icon.resize((18 * k, 18 * k), Image.LANCZOS), (pad, y))
     d.text((pad + 24 * k, y + 9 * k), "Scoresby, VIC", font=font(13 * k, "Regular Text"), fill=fg, anchor="lm")
 
     # tabs
@@ -209,7 +350,7 @@ def preview(dark):
 
     # current conditions
     y = 74 * k
-    bg.alpha_composite(partly_cloudy_icon(64 * k), (pad, y + 2 * k))
+    bg.alpha_composite(icon.resize((64 * k, 64 * k), Image.LANCZOS), (pad, y + 2 * k))
     tx = pad + 76 * k
     d.text((tx, y - 4 * k), "24°", font=font(40 * k, "Semibold Display"), fill=fg)
     d.text((tx, y + 46 * k), "Partly cloudy", font=font(14 * k, "Regular Text"), fill=fg)
@@ -226,7 +367,7 @@ def preview(dark):
         d.text((x, y + 20 * k), lab, font=font(12 * k, "Regular Text"), fill=subtle)
 
     # station
-    d.text((pad, H - 22 * k), "Scoresby station · 1.6 km", font=font(12 * k, "Regular Text"), fill=subtle, anchor="ls")
+    d.text((pad, H - 22 * k), "Scoresby · 1.6 km", font=font(12 * k, "Regular Text"), fill=subtle, anchor="ls")
 
     return bg.resize((300, 304), Image.LANCZOS)
 
@@ -243,6 +384,9 @@ def main():
     fit(mono_glyph(), (48, 48)).save(os.path.join(ASSETS, "LockScreenLogo.scale-200.png"))
     with_wordmark(tile, (620, 300), 0.42, (255, 255, 255)).save(os.path.join(ASSETS, "Wide310x150Logo.scale-200.png"))
     with_wordmark(tile, (1240, 600), 0.30, (255, 255, 255)).save(os.path.join(ASSETS, "SplashScreen.scale-200.png"))
+
+    icons()
+    backgrounds()
 
     # Widget picker: icon and light/dark previews
     fit(bare, (256, 256)).save(os.path.join(PROVIDER, "Weather_Icon.png"))
