@@ -663,7 +663,7 @@
           "items": [
             {
               "type": "ColumnSet",
-              "$data": "${dailyCompact}",
+              "$data": "${dailyForecasts}",
               "spacing": "none",
               "columns": [
                 {
@@ -730,7 +730,8 @@
               "text": "⚠ ${title}",
               "weight": "bolder",
               "size": "small",
-              "wrap": false,
+              "wrap": true,
+              "maxLines": 2,
               "spacing": "none"
             }
           ]

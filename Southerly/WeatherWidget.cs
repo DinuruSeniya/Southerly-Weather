@@ -526,8 +526,6 @@ namespace Southerly
                 dailyForecasts,
                 hourlyForecasts,
                 hourlyStrip       = hourlyForecasts.Take(5),
-                // Large size shows everything at once; drop a day to make room for warnings.
-                dailyCompact      = dailyForecasts.Take(warnings.Count > 0 ? 4 : 5),
                 warnings,
                 hasWarnings       = warnings.Count > 0,
                 error             = ""
@@ -555,7 +553,6 @@ namespace Southerly
                 dailyForecasts = Array.Empty<object>(),
                 hourlyForecasts = Array.Empty<object>(),
                 hourlyStrip = Array.Empty<object>(),
-                dailyCompact = Array.Empty<object>(),
                 warnings = Array.Empty<object>(), hasWarnings = false,
                 error
             })!.AsObject();
