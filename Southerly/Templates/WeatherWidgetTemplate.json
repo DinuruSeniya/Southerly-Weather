@@ -108,7 +108,7 @@
               ] }
           ]
         },
-        { "type": "TextBlock", "text": "⚠ ${warnings[0].title}", "color": "attention", "weight": "bolder", "size": "small", "spacing": "small", "wrap": false, "$when": "${hasWarnings}" }
+        { "type": "TextBlock", "$data": "${warnings}", "$when": "${$index == 0}", "text": "⚠ ${title}", "color": "attention", "weight": "bolder", "size": "small", "spacing": "small", "wrap": false }
       ]
     },
 
@@ -157,8 +157,7 @@
               ] }
           ]
         },
-        { "type": "TextBlock", "text": "${notes[0].text}", "color": "${notes[0].color}", "size": "small", "spacing": "small", "wrap": false, "$when": "${count(notes) > 0}" },
-        { "type": "TextBlock", "text": "${notes[1].text}", "color": "${notes[1].color}", "size": "small", "spacing": "none", "wrap": false, "$when": "${$host.widgetSize == 'large' && count(notes) > 1}" }
+        { "type": "TextBlock", "$data": "${notes}", "$when": "${$index == 0 || $host.widgetSize == 'large'}", "text": "${text}", "color": "${color}", "size": "small", "spacing": "${$index == 0 ? 'small' : 'none'}", "wrap": false }
       ]
     },
 

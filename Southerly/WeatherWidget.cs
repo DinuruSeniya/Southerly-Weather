@@ -384,7 +384,7 @@ internal sealed class WeatherWidget
             todayMax = Num(first?["temp_max"]),
             todayMin = low,
             todayRain = Chance(first?["rain"]?["chance"]),
-            notes,
+            notes = notes.Take(2),
             humidity = (double?)obs?["humidity"] is double h ? $"{(int)h}%" : "",
             rain = (double?)obs?["rain_since_9am"] is double r ? $"{r:0.#} mm" : "",
             wind = Wind(obs?["wind"]),
