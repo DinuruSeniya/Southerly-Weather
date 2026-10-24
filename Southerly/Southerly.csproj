@@ -1,58 +1,36 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
+    <TargetFramework>net10.0-windows10.0.28000.0</TargetFramework>
+    <WindowsSdkPackageVersion>10.0.28000.87</WindowsSdkPackageVersion>
+    <!-- Windows 11 26H2. Bump this and the manifest's MinVersion with each new Windows release. -->
+    <TargetPlatformMinVersion>10.0.26300.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.26300.0</SupportedOSPlatformVersion>
     <RootNamespace>Southerly</RootNamespace>
-    <Platforms>ARM64</Platforms>
-    <RuntimeIdentifiers>win-arm64</RuntimeIdentifiers>
+    <!-- ARM64 is the default; build x64 with: dotnet build -p:Platform=x64 -->
+    <Platforms>ARM64;x64</Platforms>
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">ARM64</Platform>
+    <RuntimeIdentifier>win-$(Platform.ToLowerInvariant())</RuntimeIdentifier>
     <UseWinUI>false</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
-    <SupportedOSPlatformVersion>10.0.26100.0</SupportedOSPlatformVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Assets\SplashScreen.scale-200.png" />
-    <Content Include="Assets\LockScreenLogo.scale-200.png" />
-    <Content Include="Assets\Square150x150Logo.scale-200.png" />
-    <Content Include="Assets\Square44x44Logo.scale-200.png" />
-    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
-    <Content Include="Assets\StoreLogo.png" />
-    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
-    <Content Include="Assets\WeatherBackgrounds\**\*" />
-    <Content Include="ProviderAssets\**\*.png" />
-    <Content Include="Templates\**\*.json" />
+    <SdkSupportedTargetPlatformVersion Include="10.0.28000.0" />
   </ItemGroup>
 
-  <!-- Copy package content into the build output so the output folder can be
+  <!-- Package content is copied into the build output so the output folder can be
        registered directly with Add-AppxPackage -Register (no VS deploy needed). -->
   <ItemGroup>
-    <Content Update="Assets\**\*;ProviderAssets\**\*;Templates\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\**\*;ProviderAssets\**\*;Templates\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240227000" />
-    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Widgets" Version="2.0.5" />
   </ItemGroup>
-
-  <!-- 
-    Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
-    Tools extension to be activated for this project even if the Windows App SDK Nuget
-    package has not yet been restored.
-  -->
-  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-    <ProjectCapability Include="Msix" />
-  </ItemGroup>
-
-  <!-- 
-    Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution 
-    Explorer "Package and Publish" context menu entry to be enabled for this project even if 
-    the Windows App SDK Nuget package has not yet been restored.
-  -->
-  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-    <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
-  </PropertyGroup>
 
   <Import Project="..\WidgetHelper\WidgetHelper.projitems" Label="Shared" />
 </Project>
